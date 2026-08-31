@@ -131,8 +131,45 @@ async function afterLogin(){
   await loadAccounts();
   await loadPerms();
   renderApp();
+  cekPengingatLogin(true); // popup tenggat SPT setiap kali login
 }
 async function loadPerms(){ try{ State.meta=await api('GET','/api/consult/meta'); State.user.perms=State.meta.perms||{}; }catch(e){ State.user.perms=State.user.perms||{}; } }
+
+/* ---- Popup pengingat tenggat SPT saat login ----
+ * force=true (login) selalu tampil; force=false (buka ulang app dgn sesi lama)
+ * dibatasi 1x per 6 jam via localStorage agar tidak mengganggu. */
+async function cekPengingatLogin(force){
+  try{
+    if(!State.user || State.user.role==='klien-staff') return;
+    if(!force){
+      try{ const t=+localStorage.getItem('nx-remind-at')||0; if(Date.now()-t < 6*3600*1000) return; }catch(e){}
+    }
+    const r=await api('GET','/api/consult/reminders?days=7');
+    const rows=[...(r.overdue||[]),...(r.soon||[])];
+    if(!rows.length) return;
+    try{ localStorage.setItem('nx-remind-at',String(Date.now())); }catch(e){}
+    const label=(d)=> d<0?`<span style="color:var(--merah);font-weight:700">terlambat ${-d} hari</span>`
+      : d===0?'<span style="color:var(--merah);font-weight:700">HARI INI</span>'
+      : `<span style="color:#b9791a;font-weight:700">${d} hari lagi</span>`;
+    const item=(t)=>`<div style="display:flex;gap:10px;align-items:center;padding:9px 2px;border-bottom:1px dashed var(--garis)">
+        <span style="font-size:17px">${t.daysLeft<0?'🔴':'🟠'}</span>
+        <div style="flex:1;min-width:0"><b>${esc(t.jenis)}</b> · ${esc(t.periode||'')}<div class="muted" style="font-size:12px">${esc(t.clientName)}${t.assigneeName?' · '+esc(t.assigneeName):''}</div></div>
+        <div style="text-align:right;font-size:12.5px">${esc(t.deadlineEfektif||t.deadline)}<br>${label(t.daysLeft)}</div>
+      </div>`;
+    const wrap=document.createElement('div'); wrap.className='modal-bg';
+    wrap.innerHTML=`<div class="modal" style="max-width:520px"><div class="hd"><h3>🔔 Pengingat Tenggat SPT</h3><button class="x">&times;</button></div>
+      <div class="bd">
+        <p class="muted" style="margin-top:0">${r.counts.overdue?`<b style="color:var(--merah)">${r.counts.overdue} terlambat</b> · `:''}${r.counts.soon||0} jatuh tempo ≤ 7 hari</p>
+        <div style="max-height:46vh;overflow:auto">${rows.slice(0,12).map(item).join('')}${rows.length>12?`<p class="muted" style="text-align:center">+ ${rows.length-12} lainnya…</p>`:''}</div>
+        <div class="flex mt"><div class="spacer"></div><button class="btn abu" id="ngTutup">Tutup</button><button class="btn hijau" id="ngBuka">Buka Pengingat SPT</button></div>
+      </div></div>`;
+    document.body.appendChild(wrap);
+    const close=()=>wrap.remove();
+    wrap.querySelector('.x').onclick=close; wrap.querySelector('#ngTutup').onclick=close;
+    wrap.onclick=(e)=>{if(e.target===wrap)close();};
+    wrap.querySelector('#ngBuka').onclick=()=>{ close(); State.view='pengingat'; renderApp(); };
+  }catch(e){ /* diam: pengingat tidak boleh mengganggu login */ }
+}
 async function loadAccounts(){
   try{ const r=await api('GET',burl('/accounts')); State.accounts=r.accounts||[]; }
   catch(e){ State.accounts=[]; }
@@ -2248,7 +2285,7 @@ function cetak(id){
 (async function(){
   try{
     const me=await api('GET','/api/me');
-    if(me.user){ State.user=me.user; State.company=me.company; await loadBooks(); await loadAccounts(); await loadPerms(); renderApp(); }
+    if(me.user){ State.user=me.user; State.company=me.company; await loadBooks(); await loadAccounts(); await loadPerms(); renderApp(); cekPengingatLogin(false); }
     else renderAuth('login');
   }catch(e){ renderAuth('login'); }
 })();
