@@ -120,7 +120,7 @@ Helper: `visibleClientIds(user)` (himpunan klien terlihat; klien-staff = {client
 
 Ber-tenant lewat `companyId` (kecuali `users`, `companies`, `settings`). Untuk koleksi akuntansi, `companyId` = **scope buku** (firma id atau clientId).
 
-`users`(+`supervisorId`,`clientId`,`perms{invoice,kelolaTugas}`), `companies`, `accounts`, `journals`(+`status`,`comments[]`,`attachments[]`,`createdBy`,`approvedBy`,`editCount`,`dariImpor`,`dariPenyusutan`), `budgets`, `bankRecs`, `counters`, `settings`, `imports`, `classifiers`, `rules`, `clients`(+`jenisUsaha` terstruktur, `assignedTo`), `tasks`, `invoices`, `documents`(+`sumber`), `activities`, `journalDeletions`, `periodLocks`, `assets`, `calk`.
+`users`(+`supervisorId`,`clientId`,`perms{invoice}`), `companies`, `accounts`, `journals`(+`status`,`comments[]`,`attachments[]`,`createdBy`,`approvedBy`,`editCount`,`dariImpor`,`dariPenyusutan`), `budgets`, `bankRecs`, `counters`, `settings`, `imports`, `classifiers`, `rules`, `clients`(+`jenisUsaha` terstruktur, `assignedTo`, `pembukuanBy[]`), `tasks`, `invoices`, `documents`(+`sumber`), `activities`, `journalDeletions`, `periodLocks`, `assets`, `calk`.
 
 **assets**: `{companyId(bookId), nama, tanggalPerolehan, harga, nilaiResidu, metode(garis-lurus|saldo-menurun), masaManfaat, kelompokFiskal(I..IV|bangunan-*|non-penyusutan), metodeFiskal, akunAset/akunAkumulasi/akunBeban, aktif, penyusutanPosted[]}`.
 **calk**: `{companyId(bookId), infoUmum, penyusunan, kebijakan[], pihakBerelasi, perpajakan, peristiwaSetelah}` (template narasi; angka dihasilkan otomatis saat render).
