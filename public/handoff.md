@@ -149,6 +149,8 @@ Ber-tenant lewat `companyId` (kecuali `users`, `companies`, `settings`). Untuk k
 
 ## 10. Backlog (urutan disarankan)
 
+> **Peta jalan migrasi ke cloud tersedia di `migrasi.md`** — memetakan backlog infrastruktur di bawah (hosting, backup, keamanan, SQLite/Postgres) ke fase eksekusi di VPS nexafin.id.
+
 - **Persediaan** (klien dagang/manufaktur) — kartu stok, HPP.
 - **Pelepasan/penjualan aset tetap** (laba/rugi pelepasan, hentikan penyusutan).
 - Migrasi penyimpanan JSON → **SQLite** → **PostgreSQL** saat tenant banyak.

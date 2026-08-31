@@ -4,6 +4,8 @@ Catatan berjalan: keputusan, konvensi, gotcha, dan status. Baca ini sebelum mela
 
 Terakhir diperbarui: Agustus 2026 (CALK selesai + sidebar accordion + handoff.md diperbarui menyeluruh). Laporan keuangan lengkap: Neraca, L/R, Perubahan Ekuitas, Arus Kas, CALK.
 
+**Peta jalan migrasi ke cloud (VPS nexafin.id → app.nexafin.id, JSON→SQLite→Postgres): lihat `migrasi.md`** (ditulis dari sisi VPS, 2026-08-31; landing page & blueprint arsitektur target ada di repo terpisah `nexafin-landing`).
+
 ---
 
 ## Identitas & Keputusan Produk
