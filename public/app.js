@@ -53,6 +53,10 @@ function firmaId(){ return State.user && State.user.companyId; }
 function curBook(){ return State.bookId || firmaId(); }
 function curBookInfo(){ return (State.books||[]).find(b=>b.id===curBook()) || null; }
 function isFirmaBook(){ return curBook()===firmaId(); }
+// Buku read-only untuk user ini: sedang "lihat data orang lain", ATAU buku klien yang
+// tak boleh ditulis (mis. staf perpajakan yang hanya punya tugas SPT — bukan pembukuan).
+function bookCanWrite(){ const b=curBookInfo(); return !b || b.canWrite!==false; }
+function bookRO(){ return viewingOther() || !bookCanWrite(); }
 // path buku: /api/books/<bookId><sub>?query
 function burl(sub, params){
   const p=Object.assign({},params||{});
@@ -269,7 +273,9 @@ function renderApp(){
   }).join('');
 
   const title=(menu.find(m=>m.v===State.view)||{}).t||'Dashboard';
-  const banner=viewingOther()?`<div class="pesan ok" style="margin:0 26px;margin-top:14px">👁️ Melihat data: <b>${esc(State.viewCompanyName)}</b> (mode baca-saja). <a href="#" id="kembaliData">Kembali ke data saya</a></div>`:'';
+  const roBook=!viewingOther()&&BOOK_VIEWS.has(State.view)&&curBookInfo()&&curBookInfo().canWrite===false;
+  const banner=viewingOther()?`<div class="pesan ok" style="margin:0 26px;margin-top:14px">👁️ Melihat data: <b>${esc(State.viewCompanyName)}</b> (mode baca-saja). <a href="#" id="kembaliData">Kembali ke data saya</a></div>`
+    :(roBook?`<div class="pesan ok" style="margin:0 26px;margin-top:14px">👁️ Buku <b>${esc(curBookInfo().name)}</b> — <b>mode lihat</b>. Anda ditugaskan bagian perpajakan (SPT) untuk klien ini, bukan pembukuan; perubahan buku hanya oleh staf pembukuan / pengawas penanggung jawab.</div>`:'');
 
   root().innerHTML=`
   <div class="app">
@@ -383,17 +389,17 @@ async function viewAkun(){
       <td>${esc(a.subcategory||'')}</td>
       <td>${a.normal==='D'?'Debit':'Kredit'}</td>
       <td>${a.isCash?'<span class="chip aset">Kas</span>':''}</td>
-      <td class="right">${viewingOther()?'':`<button class="btn abu kecil" data-edit="${a.id}">Ubah</button> <button class="btn abu kecil" data-del="${a.id}">Hapus</button>`}</td>
+      <td class="right">${bookRO()?'':`<button class="btn abu kecil" data-edit="${a.id}">Ubah</button> <button class="btn abu kecil" data-del="${a.id}">Hapus</button>`}</td>
     </tr>`).join('');
   content().innerHTML=`
     ${bookBanner()}
     ${migrasiCard()}
     <div class="card"><div class="hd"><h3>Bagan Akun (Chart of Accounts)</h3>
-      ${viewingOther()?'':'<button class="btn hijau kecil" id="tambahAkun">+ Tambah Akun</button>'}</div>
+      ${bookRO()?'':'<button class="btn hijau kecil" id="tambahAkun">+ Tambah Akun</button>'}</div>
       <div class="bd nopad"><div class="tbl-wrap"><table class="tbl">
         <thead><tr><th>Kode</th><th>Nama Akun</th><th>Kategori</th><th>Kelompok</th><th>Saldo Normal</th><th>Kas</th><th></th></tr></thead>
         <tbody>${rows}</tbody></table></div></div></div>`;
-  if(!viewingOther()){
+  if(!bookRO()){
     document.getElementById('tambahAkun').onclick=()=>modalAkun(null);
     content().querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>modalAkun(State.accounts.find(a=>a.id===b.dataset.edit)));
     content().querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{
@@ -487,7 +493,7 @@ async function viewJurnal(){
 function drawJurnal(){
   const all=window._jurnalAll||[];
   const locks=window._jurnalLocks||new Set();
-  const ro=viewingOther();
+  const ro=bookRO();
   const firm=isFirmSide();
   const bukuKlien=!isFirmaBook();
   const nDraf=all.filter(j=>j.status==='draf').length;
@@ -547,7 +553,7 @@ function drawJurnal(){
       <div class="field"><label>Bulan</label><input type="month" id="jBulan" value="${esc(bulan)}"></div>
       <label style="font-size:12.5px;align-self:end;padding-bottom:8px"><input type="checkbox" id="jAllMonth" ${bulan===''?'checked':''}> Semua bulan</label>
       <div class="spacer"></div>
-      ${(firm&&!isFirmaBook())?'<button class="btn abu" id="btnKunci">🔒 Kunci Periode</button>':''}
+      ${(!ro&&firm&&!isFirmaBook())?'<button class="btn abu" id="btnKunci">🔒 Kunci Periode</button>':''}
       ${ro?'':'<button class="btn hijau" id="btnJurnalBaru">+ Jurnal Baru</button>'}
     </div>
     <div id="jList">${rows}</div>
@@ -921,7 +927,7 @@ async function viewCALK(){
   const tahun=State.calkTahun||String(new Date().getFullYear()).slice(0,4);
   const r=await api('GET',burl('/calk',{tahun}));
   window._calk={data:r, ck:JSON.parse(JSON.stringify(r.calk))};
-  const firm=isFirmSide();
+  const firm=isFirmSide() && !bookRO();   // editor CALK hanya untuk yang boleh menulis buku
   const a=r.auto, vars={nama:r.nama,tahun:a.tahun,koreksiFiskal:a.koreksiFiskal.koreksi};
   // ---- editor narasi (sisi firma) ----
   const editor=firm?`
@@ -1054,6 +1060,7 @@ async function viewAsetTetap(){
   const sampai=(State.periode.bulan)||ymNow();
   const [meta,r]=await Promise.all([api('GET',burl('/assets/meta')),api('GET',burl('/assets',{sampai}))]);
   window._asetMeta=meta;
+  const ro=bookRO();
   const fisLabel=(k)=>(meta.fiskal[k]&&meta.fiskal[k].label)||k;
   const rows=(r.assets||[]).map(a=>`<tr>
       <td><b>${esc(a.nama)}</b>${a.aktif===false?' <span class="chip buruk">nonaktif</span>':''}<div class="muted" style="font-size:12px">${esc(a.tanggalPerolehan)} · ${esc((meta.metode[a.metode]||a.metode))} · ${a.masaManfaat} th</div></td>
@@ -1063,8 +1070,8 @@ async function viewAsetTetap(){
       <td>${esc(fisLabel(a.kelompokFiskal))}</td>
       <td class="right">
         <button class="btn abu kecil" data-jadwal="${a.id}">Jadwal</button>
-        <button class="btn abu kecil" data-edit="${a.id}">Ubah</button>
-        <button class="btn abu kecil" data-del="${a.id}">Hapus</button></td>
+        ${ro?'':`<button class="btn abu kecil" data-edit="${a.id}">Ubah</button>
+        <button class="btn abu kecil" data-del="${a.id}">Hapus</button>`}</td>
     </tr>`).join('')||'<tr><td colspan="6" class="muted" style="text-align:center;padding:16px">Belum ada aset tetap.</td></tr>';
   content().innerHTML=`
     ${bookBanner()}
@@ -1072,8 +1079,8 @@ async function viewAsetTetap(){
       <div class="field"><label>Posisi s/d bulan</label><input type="month" id="asBulan" value="${sampai}"></div>
       <div class="spacer"></div>
       <button class="btn abu" id="asKoreksi">📑 Koreksi Fiskal</button>
-      <button class="btn abu" id="asRun">▶️ Jalankan Penyusutan</button>
-      <button class="btn hijau" id="asAdd">+ Tambah Aset</button>
+      ${ro?'':`<button class="btn abu" id="asRun">▶️ Jalankan Penyusutan</button>
+      <button class="btn hijau" id="asAdd">+ Tambah Aset</button>`}
     </div>
     <div class="card"><div class="hd"><h3>Daftar Aset Tetap</h3><span class="muted">${(r.assets||[]).length} aset · nilai buku komersial per ${esc(sampai)}</span></div>
       <div class="bd nopad"><div class="tbl-wrap"><table class="tbl">
@@ -1081,12 +1088,14 @@ async function viewAsetTetap(){
         <tbody>${rows}</tbody></table></div></div></div>
     <p class="muted">Penyusutan <b>komersial</b> diposting otomatis ke jurnal (Beban Penyusutan / Akumulasi Penyusutan) saat Anda klik "Jalankan Penyusutan". Penyusutan <b>fiskal</b> (Pasal 11 UU PPh) dihitung berdampingan untuk <b>Koreksi Fiskal</b> — tidak diposting.</p>`;
   document.getElementById('asBulan').onchange=(e)=>{State.periode.bulan=e.target.value;viewAsetTetap();};
-  document.getElementById('asAdd').onclick=()=>modalAset(null,meta);
-  document.getElementById('asRun').onclick=()=>jalankanPenyusutan(sampai);
   document.getElementById('asKoreksi').onclick=()=>modalKoreksiFiskal(sampai.slice(0,4));
-  content().querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{ const a=(r.assets||[]).find(x=>x.id===b.dataset.edit); modalAset(a,meta); });
   content().querySelectorAll('[data-jadwal]').forEach(b=>b.onclick=()=>modalJadwalAset(b.dataset.jadwal));
-  content().querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{ if(!confirm('Hapus aset ini? Jurnal penyusutan yang sudah diposting tetap tersimpan.'))return; try{ const x=await api('DELETE',burl('/assets/'+b.dataset.del)); if(x.catatan)alert(x.catatan); viewAsetTetap(); }catch(e){alert(e.message);} });
+  if(!ro){
+    document.getElementById('asAdd').onclick=()=>modalAset(null,meta);
+    document.getElementById('asRun').onclick=()=>jalankanPenyusutan(sampai);
+    content().querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{ const a=(r.assets||[]).find(x=>x.id===b.dataset.edit); modalAset(a,meta); });
+    content().querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{ if(!confirm('Hapus aset ini? Jurnal penyusutan yang sudah diposting tetap tersimpan.'))return; try{ const x=await api('DELETE',burl('/assets/'+b.dataset.del)); if(x.catatan)alert(x.catatan); viewAsetTetap(); }catch(e){alert(e.message);} });
+  }
 }
 async function jalankanPenyusutan(sampai){
   if(!confirm(`Jalankan & posting penyusutan komersial semua aset aktif s/d ${sampai}? Bulan yang sudah diposting tidak akan dobel.`))return;
@@ -1238,16 +1247,16 @@ async function viewAnggaran(){
   const nominal=State.accounts.filter(a=>a.category==='PENDAPATAN'||a.category==='BEBAN');
   const rows=nominal.map(a=>{
     const b=budMap[a.code]; const tot=b?(b.amounts||[]).reduce((s,x)=>s+(Number(x)||0),0):0;
-    return `<tr><td class="kode">${esc(a.code)}</td><td>${esc(a.name)}</td><td class="num"><input type="number" data-code="${a.code}" value="${tot}" style="width:130px;text-align:right;padding:5px" ${viewingOther()?'disabled':''}></td></tr>`;
+    return `<tr><td class="kode">${esc(a.code)}</td><td>${esc(a.name)}</td><td class="num"><input type="number" data-code="${a.code}" value="${tot}" style="width:130px;text-align:right;padding:5px" ${bookRO()?'disabled':''}></td></tr>`;
   }).join('');
   content().innerHTML=`
     <div class="toolbar"><div class="field"><label>Tahun Anggaran</label><input type="number" id="anTahun" value="${year}" style="width:110px"></div>
-      <div class="spacer"></div>${viewingOther()?'':'<button class="btn hijau" id="anSimpan">💾 Simpan Anggaran</button>'}</div>
+      <div class="spacer"></div>${bookRO()?'':'<button class="btn hijau" id="anSimpan">💾 Simpan Anggaran</button>'}</div>
     <p class="muted">Masukkan anggaran <b>setahun</b> per akun. Nilai akan dibagi rata otomatis ke 12 bulan untuk perbandingan bulanan.</p>
     <div class="card"><div class="hd"><h3>Anggaran ${year}</h3></div><div class="bd nopad"><div class="tbl-wrap"><table class="tbl">
       <thead><tr><th>Kode</th><th>Akun</th><th class="num">Anggaran Setahun (Rp)</th></tr></thead><tbody>${rows}</tbody></table></div></div></div>`;
   document.getElementById('anTahun').onchange=(e)=>{ State.periode.bulan=e.target.value+'-'+State.periode.bulan.slice(5); viewAnggaran(); };
-  if(!viewingOther()){
+  if(!bookRO()){
     document.getElementById('anSimpan').onclick=async()=>{
       const inputs=content().querySelectorAll('input[data-code]');
       for(const inp of inputs){
@@ -1302,10 +1311,10 @@ async function viewRekonsiliasi(){
   const histori=list.recs.map(r=>{
     const a=State.accounts.find(x=>x.code===r.accountCode);
     const selisih=(r.glBalance!==undefined? r.glBalance:0);
-    return `<tr><td>${esc(r.statementDate||'')}</td><td>${esc(a?a.name:r.accountCode)}</td><td class="num">${fmtNum(r.statementBalance)}</td><td>${esc(r.note||'')}</td><td class="right">${viewingOther()?'':`<button class="btn abu kecil" data-del="${r.id}">Hapus</button>`}</td></tr>`;
+    return `<tr><td>${esc(r.statementDate||'')}</td><td>${esc(a?a.name:r.accountCode)}</td><td class="num">${fmtNum(r.statementBalance)}</td><td>${esc(r.note||'')}</td><td class="right">${bookRO()?'':`<button class="btn abu kecil" data-del="${r.id}">Hapus</button>`}</td></tr>`;
   }).join('')||'<tr><td colspan="5" class="muted" style="text-align:center;padding:16px">Belum ada rekonsiliasi.</td></tr>';
   content().innerHTML=`
-    ${viewingOther()?'':`<div class="card"><div class="hd"><h3>Rekonsiliasi Bank Baru</h3></div><div class="bd">
+    ${bookRO()?'':`<div class="card"><div class="hd"><h3>Rekonsiliasi Bank Baru</h3></div><div class="bd">
       <div id="rkMsg"></div>
       <div class="flex">
         <div class="field" style="flex:1"><label>Akun Bank/Kas</label><select id="rkAcc">${opts}</select></div>
@@ -1320,7 +1329,7 @@ async function viewRekonsiliasi(){
     <div class="card"><div class="hd"><h3>Riwayat Rekonsiliasi</h3></div><div class="bd nopad"><div class="tbl-wrap"><table class="tbl">
       <thead><tr><th>Tanggal</th><th>Akun</th><th class="num">Saldo Bank</th><th>Catatan</th><th></th></tr></thead><tbody>${histori}</tbody></table></div></div></div>`;
   content().querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{ if(!confirm('Hapus?'))return; await api('DELETE',burl('/bank-recs/'+b.dataset.del)); viewRekonsiliasi(); });
-  if(viewingOther())return;
+  if(bookRO())return;
   const hitung=async()=>{
     const code=document.getElementById('rkAcc').value; const to=document.getElementById('rkDate').value;
     const bal=Number(document.getElementById('rkBal').value)||0;
@@ -1435,12 +1444,12 @@ async function viewImpor(){
   const acctOpts=(sel)=>State.accounts.map(a=>`<option value="${a.code}" ${a.code===sel?'selected':''}>${a.code} — ${esc(a.name)}</option>`).join('');
   const bankOpts=bankAccs.map(a=>`<option value="${a.code}">${a.code} — ${esc(a.name)}</option>`).join('');
   const [list,rulesR]=await Promise.all([api('GET','/api/import'+q({})),api('GET','/api/rules'+q({}))]);
-  const hist=list.imports.map(b=>`<tr><td>${esc(b.createdAt.slice(0,10))}</td><td>${({csv:'CSV',xlsx:'Excel',ocr:'Nota/PDF (AI)'})[b.source]||b.source}</td><td>${esc(b.filename||'')}</td><td class="num">${b.terposting}/${b.jumlah}</td><td class="right"><button class="btn abu kecil" data-open="${b.id}">Buka</button> ${viewingOther()?'':`<button class="btn abu kecil" data-del="${b.id}">Hapus</button>`}</td></tr>`).join('')||'<tr><td colspan="5" class="muted" style="text-align:center;padding:16px">Belum ada impor.</td></tr>';
-  const rulesRows=(rulesR.rules||[]).map(r=>{const a=State.accounts.find(x=>x.code===r.counterCode);return `<tr><td>keterangan berisi "<b>${esc(r.contains)}</b>"${r.arah?` (${r.arah})`:''}</td><td>→ ${esc(a?a.name:r.counterCode)}</td><td class="right">${viewingOther()?'':`<button class="btn abu kecil" data-drule="${r.id}">Hapus</button>`}</td></tr>`;}).join('')||'<tr><td colspan="3" class="muted" style="text-align:center;padding:14px">Belum ada aturan tetap. Buat lewat "Terapkan massal" saat review impor.</td></tr>';
+  const hist=list.imports.map(b=>`<tr><td>${esc(b.createdAt.slice(0,10))}</td><td>${({csv:'CSV',xlsx:'Excel',ocr:'Nota/PDF (AI)'})[b.source]||b.source}</td><td>${esc(b.filename||'')}</td><td class="num">${b.terposting}/${b.jumlah}</td><td class="right"><button class="btn abu kecil" data-open="${b.id}">Buka</button> ${bookRO()?'':`<button class="btn abu kecil" data-del="${b.id}">Hapus</button>`}</td></tr>`).join('')||'<tr><td colspan="5" class="muted" style="text-align:center;padding:16px">Belum ada impor.</td></tr>';
+  const rulesRows=(rulesR.rules||[]).map(r=>{const a=State.accounts.find(x=>x.code===r.counterCode);return `<tr><td>keterangan berisi "<b>${esc(r.contains)}</b>"${r.arah?` (${r.arah})`:''}</td><td>→ ${esc(a?a.name:r.counterCode)}</td><td class="right">${bookRO()?'':`<button class="btn abu kecil" data-drule="${r.id}">Hapus</button>`}</td></tr>`;}).join('')||'<tr><td colspan="3" class="muted" style="text-align:center;padding:14px">Belum ada aturan tetap. Buat lewat "Terapkan massal" saat review impor.</td></tr>';
 
   content().innerHTML=`
     ${bookBanner()}
-    ${viewingOther()?'':`
+    ${bookRO()?'':`
     <div class="grid k3">
       <div class="card"><div class="hd"><h3>📄 Impor Rekening Koran (CSV / Excel)</h3></div><div class="bd">
         <div class="field"><label>Akun Kas/Bank tujuan</label><select id="impBank">${bankOpts}</select></div>
@@ -1467,7 +1476,7 @@ async function viewImpor(){
   content().querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>bukaBatch(b.dataset.open));
   content().querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{ if(!confirm('Hapus batch impor ini?'))return; await api('DELETE','/api/import/'+b.dataset.del); viewImpor(); });
   content().querySelectorAll('[data-drule]').forEach(b=>b.onclick=async()=>{ if(!confirm('Hapus aturan ini?'))return; await api('DELETE','/api/rules/'+b.dataset.drule); viewImpor(); });
-  if(viewingOther())return;
+  if(bookRO())return;
 
   document.getElementById('impProses').onclick=async()=>{
     const f=document.getElementById('impFile').files[0]; if(!f){alert('Pilih file dulu.');return;}
@@ -1518,7 +1527,7 @@ function jenisChipCls(label){
 function renderBatch(batch){ window._curBatch=batch; window._batchPage=0; drawBatch(); }
 function drawBatch(){
   const batch=window._curBatch; if(!batch)return;
-  const ro=viewingOther();
+  const ro=bookRO();
   const total=batch.rows.length;
   const pages=Math.max(1,Math.ceil(total/PAGE_IMPOR));
   let pg=window._batchPage||0; if(pg>=pages)pg=pages-1; if(pg<0)pg=0; window._batchPage=pg;
@@ -1912,9 +1921,11 @@ async function viewKlien(){
   const isStaffRole=State.user.role==='staff';
   const rows=clients.map(c=>{
     const s=staff.find(x=>x.id===c.assignedTo);
+    const pemb=(Array.isArray(c.pembukuanBy)?c.pembukuanBy:[]).map(id=>(staff.find(x=>x.id===id)||{}).name).filter(Boolean);
+    const pjCell=`${s?`👤 ${esc(s.name)} <span class="muted" style="font-size:11px">(pengawas)</span>`:esc(c.pic||'-')}${pemb.length?`<div class="muted" style="font-size:11px">📒 pembukuan: ${esc(pemb.join(', '))}</div>`:''}`;
     return `<tr>
       <td><b>${esc(c.nama)}</b></td><td class="kode">${esc(c.npwp||'-')}</td>
-      <td>${esc(c.jenisUsaha||'-')}</td><td>${esc(s?s.name:(c.pic||'-'))}</td>
+      <td>${esc(c.jenisUsaha||'-')}</td><td>${pjCell}</td>
       <td>${c.status==='nonaktif'?'<span class="chip buruk">Nonaktif</span>':'<span class="chip baik">Aktif</span>'}</td>
       <td class="right"><button class="btn abu kecil" data-doc="${c.id}">Dokumen</button>${!isStaffRole?` <button class="btn abu kecil" data-edit="${c.id}">Ubah</button>`:''}${isAdminRole?` <button class="btn abu kecil" data-del="${c.id}">Hapus</button>`:''}</td>
     </tr>`;
@@ -1932,6 +1943,11 @@ async function viewKlien(){
 }
 function modalKlien(c,staff){
   const isEdit=!!c;
+  const isAdminRole=State.user.role==='admin'||State.user.role==='user';
+  const pengawasList=(staff||[]).filter(s=>s.role==='pengawas');
+  const staffList=(staff||[]).filter(s=>s.role==='staff');   // untuk pengawas, /api/staff sudah dibatasi ke timnya
+  const pembukuanSel=new Set((c&&Array.isArray(c.pembukuanBy))?c.pembukuanBy:[]);
+  const ownerNama=(pengawasList.find(p=>p.id===(c&&c.assignedTo))||(staff||[]).find(s=>s.id===(c&&c.assignedTo))||{}).name||'— belum ditunjuk —';
   const wrap=document.createElement('div'); wrap.className='modal-bg';
   wrap.innerHTML=`<div class="modal"><div class="hd"><h3>${isEdit?'Ubah Klien':'Tambah Klien'}</h3><button class="x">&times;</button></div>
     <div class="bd"><div id="kMsg"></div>
@@ -1940,16 +1956,27 @@ function modalKlien(c,staff){
         <div class="field" style="flex:1"><label>Jenis Usaha</label><select id="kUsaha">${jenisUsahaOpts(c?c.jenisUsaha:'')}</select></div></div>
       <div class="flex"><div class="field" style="flex:1"><label>Email</label><input id="kEmail" value="${c?esc(c.email||''):''}"></div>
         <div class="field" style="flex:1"><label>Telepon</label><input id="kTelp" value="${c?esc(c.telepon||''):''}"></div></div>
-      <div class="flex"><div class="field" style="flex:1"><label>Penanggung Jawab (Staff)</label><select id="kPic"><option value="">— pilih —</option>${staffOpts(staff,c?c.assignedTo:'')}</select></div>
+      <div class="flex">
+        <div class="field" style="flex:1"><label>Pengawas Penanggung Jawab</label>
+          ${isAdminRole
+            ? `<select id="kPic"><option value="">— pilih pengawas —</option>${staffOpts(pengawasList,c?c.assignedTo:'')}</select>`
+            : `<input value="${esc(ownerNama)}" disabled title="Hanya admin yang menyerahkan klien ke pengawas">`}</div>
         <div class="field" style="flex:1"><label>Status</label><select id="kStatus"><option value="aktif" ${c&&c.status==='aktif'?'selected':''}>Aktif</option><option value="nonaktif" ${c&&c.status==='nonaktif'?'selected':''}>Nonaktif</option></select></div></div>
+      <div class="field"><label>Staf Pembukuan <span class="muted">(boleh beberapa — hanya mereka & pengawas penanggung jawab yang dapat mengubah buku; staf perpajakan cukup ditugaskan lewat menu Pekerjaan/SPT)</span></label>
+        <div id="kPembukuan" style="display:flex;flex-wrap:wrap;gap:8px 14px;padding:8px 10px;border:1px solid var(--garis);border-radius:8px">
+          ${staffList.length?staffList.map(s=>`<label style="font-size:13px;display:flex;align-items:center;gap:5px"><input type="checkbox" value="${s.id}" ${pembukuanSel.has(s.id)?'checked':''}> ${esc(s.name)}</label>`).join(''):'<span class="muted" style="font-size:12.5px">Belum ada staf pembukuan. Tambah anggota (peran Staff) di menu Tim / Staff.</span>'}
+        </div></div>
       <div class="flex mt"><div class="spacer"></div><button class="btn abu" id="kBatal">Batal</button><button class="btn hijau" id="kSimpan">Simpan</button></div>
     </div></div>`;
   document.body.appendChild(wrap);
   const close=()=>wrap.remove();
   wrap.querySelector('.x').onclick=close; wrap.querySelector('#kBatal').onclick=close; wrap.onclick=(e)=>{if(e.target===wrap)close();};
   wrap.querySelector('#kSimpan').onclick=async()=>{
+    const pic=wrap.querySelector('#kPic');
+    const pembukuanBy=[...wrap.querySelectorAll('#kPembukuan input:checked')].map(x=>x.value);
     const body={nama:wrap.querySelector('#kNama').value,npwp:wrap.querySelector('#kNpwp').value,jenisUsaha:wrap.querySelector('#kUsaha').value,
-      email:wrap.querySelector('#kEmail').value,telepon:wrap.querySelector('#kTelp').value,assignedTo:wrap.querySelector('#kPic').value||null,status:wrap.querySelector('#kStatus').value};
+      email:wrap.querySelector('#kEmail').value,telepon:wrap.querySelector('#kTelp').value,status:wrap.querySelector('#kStatus').value,pembukuanBy};
+    if(pic) body.assignedTo=pic.value||null;   // hanya admin yang menyerahkan klien ke pengawas
     try{ if(isEdit) await api('PUT','/api/clients/'+c.id,body); else await api('POST','/api/clients',body); close(); viewKlien(); }
     catch(e){ wrap.querySelector('#kMsg').innerHTML=`<div class="pesan err">${esc(e.message)}</div>`; }
   };
@@ -1979,10 +2006,14 @@ async function viewPekerjaan(){
   const rows=list.map(t=>`<tr>
       <td><b>${esc(t.clientName)}</b></td><td>${esc(t.jenis)}</td><td>${esc(t.periode||'-')}</td>
       <td>${esc(t.assigneeName)}</td>
-      <td><select class="tk-status" data-id="${t.id}" data-cur="${t.status}">${meta.statusTugas.map(s=>`<option value="${s}" ${t.status===s?'selected':''}>${T_STATUS[s][0]}</option>`).join('')}</select></td>
+      <td>${t.canEdit
+        ? `<select class="tk-status" data-id="${t.id}" data-cur="${t.status}">${meta.statusTugas.map(s=>`<option value="${s}" ${t.status===s?'selected':''}>${T_STATUS[s][0]}</option>`).join('')}</select>`
+        : `<span class="chip">${esc((T_STATUS[t.status]&&T_STATUS[t.status][0])||t.status)}</span>`}</td>
       <td>${t.deadline?(t.deadline<todayStr()&&t.status!=='selesai'?`<span class="neg">${esc(t.deadline)} ⚠</span>`:esc(t.deadline)):'-'}${t.catatanTenggat?`<div class="muted" style="font-size:11px;margin-top:2px;white-space:normal;max-width:200px">↪ efektif ${esc(t.deadlineEfektif)}</div>`:''}</td>
       <td>${t.status==='selesai'?buktiCell(t):'<span class="muted" style="font-size:11px">—</span>'}</td>
-      <td class="right"><button class="btn abu kecil" data-edit="${t.id}">Ubah</button>${State.user.role!=='staff'?` <button class="btn abu kecil" data-del="${t.id}">Hapus</button>`:''}</td>
+      <td class="right">${t.canEdit
+        ? `<button class="btn abu kecil" data-edit="${t.id}">Ubah</button>${State.user.role!=='staff'?` <button class="btn abu kecil" data-del="${t.id}">Hapus</button>`:''}`
+        : '<span class="muted" style="font-size:11px">👁️ lihat</span>'}</td>
     </tr>`).join('')||'<tr><td colspan="8" class="muted" style="text-align:center;padding:16px">Tidak ada pekerjaan untuk filter ini.</td></tr>';
   const labelFilter=fBulan?`${BULAN[+fBulan]} ${fTahun}`:(fTahun?`Tahun ${fTahun}`:'Semua periode');
   content().innerHTML=`
