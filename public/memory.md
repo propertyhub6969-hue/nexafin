@@ -95,3 +95,9 @@ Terakhir diperbarui: Agustus 2026 (CALK selesai + sidebar accordion + handoff.md
 - Node portabel ada di folder (`node.exe`), plus Node sistem terpasang.
 - Data & file terunggah: `%LOCALAPPDATA%\WebAkunting\` (db.json, .secret, files/).
 - Akun admin = pengguna pertama yang mendaftar.
+
+## Status Cloud (2026-08-31, dari sisi VPS)
+- [x] **Fase 1 migrasi.md SELESAI**: live di https://app.nexafin.id (Docker `nexafin_app`, volume `nexafin_app_data`, TZ WIB, backup harian 02:30 retensi 14 hr).
+- [x] **Fase 2 (sebagian)**: rate limit login per-akun (8 gagal/15 mnt, log audit di `docker logs nexafin_app`), healthcheck container, `lib/reset-password.js` (via docker exec + restart), **auto-deploy**: push ke `main` → VPS deploy otomatis ≤3 menit (`/opt/nexafin-app-deploy.sh`, log `/var/log/nexafin-app-deploy.log`, rollback otomatis bila gagal).
+- [ ] Fase 2 sisa: pengingat email/WhatsApp (butuh keputusan SMTP/gateway), uptime monitor eksternal.
+- Catatan dev Windows: cukup `git push` — produksi ter-update sendiri. JANGAN input data riil di Windows lagi (produksi = VPS).
