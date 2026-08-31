@@ -2240,10 +2240,26 @@ async function viewArsip(){
 
 /* ============ TIM / STAFF ============ */
 async function viewTim(){
-  const [r,cl]=await Promise.all([api('GET','/api/staff'),api('GET','/api/clients')]);
+  const [r,cl,tk]=await Promise.all([api('GET','/api/staff'),api('GET','/api/clients'),api('GET','/api/tasks').catch(()=>({tasks:[]}))]);
   const clients=cl.clients||[];
+  const tasks=tk.tasks||[];
   const pengawasList=r.staff.filter(s=>s.role==='pengawas');
   const peranBadge=(role)=>role==='pengawas'?'<span class="badge admin">Pengawas</span>':role==='staff'?'<span class="badge">Staff</span>':role==='klien-staff'?'<span class="badge" style="background:#0a8a61">Staf Klien</span>':'<span class="badge admin">Konsultan/Admin</span>';
+  // Kolom "Menangani": klien yang dipegang tiap anggota + perannya (pembukuan/SPT/pengawas)
+  const chipK=(t)=>`<span class="chip" style="background:var(--garis2);color:var(--teks2);font-size:11px;margin:1px 2px;display:inline-block">${t}</span>`;
+  const menanganiCell=(s)=>{
+    if(s.role==='admin'||s.role==='user') return '<span class="muted">semua klien firma</span>';
+    if(s.role==='klien-staff') return chipK('🏢 '+esc(s.clientName||'—'));
+    if(s.role==='pengawas'){
+      const pj=clients.filter(c=>c.assignedTo===s.id);
+      return pj.length?pj.map(c=>chipK('👤 '+esc(c.nama))).join(''):'<span class="muted" style="font-size:12px">— belum dititipi klien —</span>';
+    }
+    // staff firma: pembukuan (dari clients.pembukuanBy) + perpajakan (punya tugas SPT)
+    const pemb=clients.filter(c=>Array.isArray(c.pembukuanBy)&&c.pembukuanBy.includes(s.id)).map(c=>c.nama);
+    const spt=[...new Set(tasks.filter(t=>t.assignedTo===s.id).map(t=>t.clientName))].filter(n=>n&&n!=='—');
+    const out=[...pemb.map(n=>chipK('📒 '+esc(n))), ...spt.filter(n=>!pemb.includes(n)).map(n=>chipK('🧾 '+esc(n)))];
+    return out.length?out.join(''):'<span class="muted" style="font-size:12px">belum ditugaskan</span>';
+  };
   const rows=r.staff.map(s=>{
     const anggota=(s.role==='staff'||s.role==='pengawas'); const self=s.id===State.user.id;
     const ks=s.role==='klien-staff';
@@ -2254,6 +2270,7 @@ async function viewTim(){
     const roleCell=anggota&&!self?`${peranBadge(s.role)} <button class="btn abu kecil" data-role="${s.id}" data-to="${s.role==='pengawas'?'staff':'pengawas'}">${s.role==='pengawas'?'→ Staf':'→ Pengawas'}</button>`:peranBadge(s.role);
     const invCell=anggota?`<button class="btn ${inv?'hijau':'abu'} kecil" data-inv="${s.id}" data-on="${inv?1:0}">${inv?'✓':'beri'}</button>`:(ks?'<span class="muted">—</span>':'<span class="chip baik">Penuh</span>');
     return `<tr><td><b>${esc(s.name)}</b></td><td>${esc(s.email)}</td><td>${roleCell}</td><td>${supCell}</td>
+      <td style="max-width:280px;white-space:normal">${menanganiCell(s)}</td>
       <td>${invCell}</td>
       <td class="right">${self||!(anggota||ks)?'':`<button class="btn abu kecil" data-del="${s.id}">Hapus</button>`}</td></tr>`;
   }).join('');
@@ -2261,8 +2278,8 @@ async function viewTim(){
     <div class="toolbar"><div class="spacer"></div><button class="btn hijau" id="addStaff">+ Tambah Anggota</button></div>
     <div class="card"><div class="hd"><h3>Tim / Staff</h3><span class="muted">${r.staff.length} anggota</span></div>
     <div class="bd nopad"><div class="tbl-wrap"><table class="tbl">
-      <thead><tr><th>Nama</th><th>Email</th><th>Peran</th><th>Pengawas</th><th>Akses Invoice</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div></div>
-    <p class="muted">• <b>Staff</b>: login sendiri, hanya melihat & mengerjakan tugas + buku klien yang ditugaskan kepadanya (jadikan staf <b>Penanggung Jawab</b> klien di menu Klien).<br>• <b>Pengawas</b>: memantau, menugaskan & mengelola tugas hanya untuk <b>timnya</b> (staf yang pengawasnya dia), tanpa akses dashboard finansial.<br>• <b>Akses Invoice</b>: izinkan anggota melihat/mengelola invoice.</p>`;
+      <thead><tr><th>Nama</th><th>Email</th><th>Peran</th><th>Pengawas</th><th>Menangani (Klien)</th><th>Akses Invoice</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div></div>
+    <p class="muted">• <b>Menangani</b>: <span class="chip" style="font-size:11px">👤 pengawas penanggung jawab</span> <span class="chip" style="font-size:11px">📒 staf pembukuan</span> <span class="chip" style="font-size:11px">🧾 staf perpajakan (SPT)</span> <span class="chip" style="font-size:11px">🏢 buku perusahaannya (staf klien)</span>. Atur penugasan di menu <b>Klien</b> (Pengawas & Staf Pembukuan) dan <b>Pekerjaan/SPT</b> (perpajakan).<br>• <b>Staff</b>: hanya tugas + buku klien yang ditugaskan kepadanya.<br>• <b>Pengawas</b>: memantau, menugaskan & mengelola tugas hanya untuk <b>timnya</b>, tanpa akses dashboard finansial.<br>• <b>Akses Invoice</b>: izinkan anggota melihat/mengelola invoice.</p>`;
   document.getElementById('addStaff').onclick=()=>modalStaff(pengawasList,clients);
   content().querySelectorAll('.tm-sup').forEach(sel=>sel.onchange=async()=>{ try{ await api('PUT','/api/staff/'+sel.dataset.id,{supervisorId:sel.value||null}); viewTim(); }catch(e){alert(e.message);} });
   content().querySelectorAll('[data-role]').forEach(b=>b.onclick=async()=>{ if(!confirm(`Ubah peran menjadi ${b.dataset.to}?`))return; try{ await api('PUT','/api/staff/'+b.dataset.role,{role:b.dataset.to}); viewTim(); }catch(e){alert(e.message);} });
