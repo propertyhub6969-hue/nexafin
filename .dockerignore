@@ -1,0 +1,13 @@
+node_modules
+corepack*
+npm*
+npx*
+*.cmd
+*.ps1
+*.bat
+node.exe
+.git
+db.json
+.secret
+data
+*.md
