@@ -246,6 +246,7 @@ function renderApp(){
     menu.push({v:'kotakmasuk',t:'Kotak Masuk Jurnal',e:'📨'});
     menu.push({v:'pengingat',t:'Pengingat SPT',e:'🔔'});
     menu.push({v:'klien',t:'Klien',e:'🏢'});
+    if(u.role==='admin'||u.role==='user'||u.role==='pengawas') menu.push({v:'penugasan',t:'Penugasan',e:'🧩'});
     menu.push({v:'pekerjaan',t:'Pekerjaan / SPT',e:'✅'});
     menu.push({v:'arsip',t:'Arsip Dokumen',e:'🗄️'});
     const isAdminRole=u.role==='admin'||u.role==='user';
@@ -328,7 +329,7 @@ async function routeView(){
       labarugi:viewLabaRugi,neraca:viewNeraca,ekuitas:viewPerubahanEkuitas,aruskas:viewArusKas,calk:viewCALK,anggaran:viewAnggaran,varians:viewVarians,
       rekonsiliasi:viewRekonsiliasi,aset:viewAsetTetap,akun:viewAkun,admin:viewAdmin,pengaturan:viewPengaturan,
       impor:viewImpor,insight:viewInsight,setelanai:viewSetelanAI,
-      konsultan:viewKonsultan,klien:viewKlien,pekerjaan:viewPekerjaan,invoice:viewInvoiceKlien,arsip:viewArsip,tim:viewTim,pengingat:viewPengingat,kotakmasuk:viewKotakMasuk};
+      konsultan:viewKonsultan,klien:viewKlien,penugasan:viewPenugasan,pekerjaan:viewPekerjaan,invoice:viewInvoiceKlien,arsip:viewArsip,tim:viewTim,pengingat:viewPengingat,kotakmasuk:viewKotakMasuk};
     const fn=map[State.view]||viewDashboard;
     await fn();
   }catch(err){
@@ -1980,6 +1981,49 @@ function modalKlien(c,staff){
     try{ if(isEdit) await api('PUT','/api/clients/'+c.id,body); else await api('POST','/api/clients',body); close(); viewKlien(); }
     catch(e){ wrap.querySelector('#kMsg').innerHTML=`<div class="pesan err">${esc(e.message)}</div>`; }
   };
+}
+
+/* ============ PENUGASAN (satu layar: klien × penanggung jawab) ============ */
+async function viewPenugasan(){
+  const isAdminRole=State.user.role==='admin'||State.user.role==='user';
+  const [cl,rs,tk]=await Promise.all([api('GET','/api/clients'),api('GET','/api/staff'),api('GET','/api/tasks').catch(()=>({tasks:[]}))]);
+  const clients=(cl.clients||[]).slice().sort((a,b)=>(a.nama||'').localeCompare(b.nama||''));
+  const staff=rs.staff||[];
+  const tasks=tk.tasks||[];
+  const pengawasList=staff.filter(s=>s.role==='pengawas');
+  const staffList=staff.filter(s=>s.role==='staff');
+  const sptByClient={}; tasks.forEach(t=>{ (sptByClient[t.clientId]=sptByClient[t.clientId]||new Set()).add(t.assigneeName||''); });
+  const rows=clients.map(c=>{
+    const pemb=new Set(Array.isArray(c.pembukuanBy)?c.pembukuanBy:[]);
+    const pjName=(staff.find(s=>s.id===c.assignedTo)||{}).name;
+    const pengawasCell=isAdminRole
+      ? `<select class="pn-pj" data-id="${c.id}"><option value="">— pilih pengawas —</option>${pengawasList.map(p=>`<option value="${p.id}" ${c.assignedTo===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select>`
+      : `<span>${esc(pjName||'—')}</span>`;
+    const pembCell=staffList.length
+      ? `<div class="flex" style="flex-wrap:wrap;gap:4px 12px">${staffList.map(s=>`<label style="font-size:12px;display:flex;gap:4px;align-items:center"><input type="checkbox" class="pn-pemb" data-id="${c.id}" value="${s.id}" ${pemb.has(s.id)?'checked':''}> ${esc(s.name)}</label>`).join('')}</div>`
+      : '<span class="muted" style="font-size:12px">belum ada staf — tambah di Tim/Staff</span>';
+    const spt=[...(sptByClient[c.id]||[])].filter(Boolean);
+    const sptCell=`${spt.length?spt.map(n=>`<span class="chip" style="font-size:11px">🧾 ${esc(n)}</span>`).join(' '):'<span class="muted" style="font-size:12px">belum ada</span>'} <button class="btn abu kecil" data-spt="${c.id}">Atur SPT ›</button>`;
+    return `<tr><td><b>${esc(c.nama)}</b>${c.status==='nonaktif'?' <span class="chip buruk">nonaktif</span>':''}</td>
+      <td>${pengawasCell}</td><td>${pembCell}</td><td>${sptCell}</td></tr>`;
+  }).join('')||'<tr><td colspan="4" class="muted" style="text-align:center;padding:16px">Belum ada klien. Tambah di menu Klien.</td></tr>';
+  content().innerHTML=`
+    <div class="card"><div class="hd"><h3>🧩 Penugasan Klien</h3><span class="muted" id="pnMsg">${clients.length} klien</span></div>
+    <div class="bd">
+      <p class="muted" style="margin-top:0">Atur semua penugasan di satu tempat — perubahan tersimpan otomatis:
+        <b>👤 Pengawas</b> penanggung jawab (Tingkat 1${isAdminRole?'':' — hanya admin'}), <b>📒 Staf Pembukuan</b> (boleh beberapa), dan <b>🧾 Perpajakan</b> lewat tugas SPT.</p>
+      <div class="tbl-wrap"><table class="tbl">
+        <thead><tr><th>Klien</th><th>👤 Pengawas Penanggung Jawab</th><th>📒 Staf Pembukuan</th><th>🧾 Perpajakan (SPT)</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>
+    </div></div>`;
+  const flash=(t)=>{ const el=document.getElementById('pnMsg'); if(el){ const o=el.textContent; el.textContent=t; el.style.color='var(--aksen)'; setTimeout(()=>{el.textContent=o;el.style.color='';},1500); } };
+  content().querySelectorAll('.pn-pj').forEach(sel=>sel.onchange=async()=>{ try{ await api('PUT','/api/clients/'+sel.dataset.id,{assignedTo:sel.value||null}); flash('✓ pengawas disimpan'); }catch(e){ alert(e.message); viewPenugasan(); } });
+  content().querySelectorAll('.pn-pemb').forEach(cb=>cb.onchange=async()=>{
+    const id=cb.dataset.id;
+    const ids=[...content().querySelectorAll('.pn-pemb[data-id="'+id+'"]:checked')].map(x=>x.value);
+    try{ await api('PUT','/api/clients/'+id,{pembukuanBy:ids}); flash('✓ pembukuan disimpan'); }catch(e){ alert(e.message); viewPenugasan(); }
+  });
+  content().querySelectorAll('[data-spt]').forEach(b=>b.onclick=()=>{ State.view='pekerjaan'; renderApp(); });
 }
 
 /* ============ PEKERJAAN / PROGRES SPT ============ */
