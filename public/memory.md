@@ -101,3 +101,31 @@ Terakhir diperbarui: Agustus 2026 (CALK selesai + sidebar accordion + handoff.md
 - [x] **Fase 2 (sebagian)**: rate limit login per-akun (8 gagal/15 mnt, log audit di `docker logs nexafin_app`), healthcheck container, `lib/reset-password.js` (via docker exec + restart), **auto-deploy**: push ke `main` → VPS deploy otomatis ≤3 menit (`/opt/nexafin-app-deploy.sh`, log `/var/log/nexafin-app-deploy.log`, rollback otomatis bila gagal).
 - [ ] Fase 2 sisa: pengingat email/WhatsApp (butuh keputusan SMTP/gateway), uptime monitor eksternal.
 - Catatan dev Windows: cukup `git push` — produksi ter-update sendiri. JANGAN input data riil di Windows lagi (produksi = VPS).
+- [x] **Pengingat tenggat SPT saat login** (keputusan pengguna: in-app dulu, tanpa WA/email): popup `cekPengingatLogin()` di app.js — tiap login tampil bila ada SPT terlambat/≤7 hari; sesi lama throttle 6 jam (localStorage `nx-remind-at`); dilewati utk klien-staff.
+
+---
+
+## ROADMAP (disepakati 2026-08-31 — urutan disarankan)
+
+### Sekarang → 1 bulan (pakai & rapikan)
+1. **Pakai di klien nyata** — data riil di app.nexafin.id; kumpulkan friksi UX sebagai backlog.
+2. **Keputusan registrasi publik**: `/api/register` masih TERBUKA (tiap pendaftar = firma baru). Putuskan: biarkan (SaaS open) ATAU kode undangan. (Belum diputuskan.)
+3. **Cetak PDF invoice & rekap SPT per klien** (pola `cetak()` yang ada, tanpa dependensi).
+4. **Impor kalender libur nasional per tahun** (file JSON per tahun, menu kelola libur sudah ada).
+
+### 1–3 bulan (fitur akuntansi lanjutan)
+5. **Persediaan** (klien dagang/manufaktur): kartu stok, HPP — prasyarat CALK dagang yang utuh.
+6. **Pelepasan/penjualan aset tetap**: laba/rugi pelepasan, hentikan penyusutan, jurnal otomatis.
+7. **Pengingat WhatsApp/email** (Fase 2 sisa): cron server → endpoint reminders → gateway WA / SMTP. Fondasi endpoint sudah ada (`/api/consult/reminders`).
+8. **Uptime monitor eksternal** (UptimeRobot/sejenis, gratis) → notifikasi bila app down.
+
+### 3–6 bulan (skala — Fase 3 migrasi.md)
+9. **JSON → SQLite** (`node:sqlite` bawaan Node 22, tetap zero-dep; adaptor cukup di `lib/db.js`). PEMICU: >~10 firma aktif ATAU db.json >~20MB ATAU tulis-bersamaan terasa. WAJIB: skrip paritas laporan (trial balance identik rupiah-per-rupiah) sebelum store lama pensiun.
+10. **SQLite → PostgreSQL 16** (compose + driver `pg`): JSONB dulu, lalu normalisasi journals/accounts; tegakkan RLS per companyId + invariant Σdebit=Σkredit + jurnal disetujui immutable di DB.
+
+### 6+ bulan (arsitektur target — Fase 4, HANYA bila ada tekanan nyata)
+11. **api.nexafin.id** (Open API `/v1` + API key per firma; basis: routes-books/routes-consult).
+12. **Pecah service pertama**: `integration-svc` (bank feed via API, ganti unggah XLSX manual) lalu `ai-svc` (promosi `lib/ai.js` + guardrail). Rujukan lengkap: blueprint di repo `nexafin-landing/docs/blueprint.html`.
+13. Frontend vanilla DIPERTAHANKAN sampai ada alasan kuat (tim membesar/portal klien terpisah).
+
+**Prinsip roadmap:** fitur produk (1–8) boleh loncat urutan sesuai kebutuhan klien; infrastruktur (9–13) JANGAN loncat — tiap langkah punya pemicu & gerbang verifikasi.
