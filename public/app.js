@@ -2216,30 +2216,28 @@ async function viewTim(){
   const rows=r.staff.map(s=>{
     const anggota=(s.role==='staff'||s.role==='pengawas'); const self=s.id===State.user.id;
     const ks=s.role==='klien-staff';
-    const inv=s.perms&&s.perms.invoice; const kel=s.perms&&s.perms.kelolaTugas; const jur=s.perms&&s.perms.jurnalKlien;
+    const inv=s.perms&&s.perms.invoice; const kel=s.perms&&s.perms.kelolaTugas;
     const supCell=s.role==='staff'
       ? `<select class="tm-sup" data-id="${s.id}" style="min-width:150px"><option value="">— tanpa pengawas —</option>${pengawasList.map(p=>`<option value="${p.id}" ${s.supervisorId===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select>`
       : (ks?`<span class="muted">buku: ${esc(s.clientName||'—')}</span>`:'<span class="muted">—</span>');
     const roleCell=anggota&&!self?`${peranBadge(s.role)} <button class="btn abu kecil" data-role="${s.id}" data-to="${s.role==='pengawas'?'staff':'pengawas'}">${s.role==='pengawas'?'→ Staf':'→ Pengawas'}</button>`:peranBadge(s.role);
     const invCell=anggota?`<button class="btn ${inv?'hijau':'abu'} kecil" data-inv="${s.id}" data-on="${inv?1:0}">${inv?'✓':'beri'}</button>`:(ks?'<span class="muted">—</span>':'<span class="chip baik">Penuh</span>');
     const kelCell=anggota?`<button class="btn ${kel?'hijau':'abu'} kecil" data-kel="${s.id}" data-on="${kel?1:0}" title="Boleh mengubah/menyelesaikan tugas milik anggota lain">${kel?'✓':'beri'}</button>`:(ks?'<span class="muted">—</span>':'<span class="chip baik">Penuh</span>');
-    const jurCell=anggota?`<button class="btn ${jur?'hijau':'abu'} kecil" data-jur="${s.id}" data-on="${jur?1:0}" title="Boleh membuka & menjurnal SEMUA buku klien firma">${jur?'✓':'beri'}</button>`:(ks?'<span class="chip baik">buku sendiri</span>':'<span class="chip baik">Penuh</span>');
     return `<tr><td><b>${esc(s.name)}</b></td><td>${esc(s.email)}</td><td>${roleCell}</td><td>${supCell}</td>
-      <td>${invCell}</td><td>${kelCell}</td><td>${jurCell}</td>
+      <td>${invCell}</td><td>${kelCell}</td>
       <td class="right">${self||!(anggota||ks)?'':`<button class="btn abu kecil" data-del="${s.id}">Hapus</button>`}</td></tr>`;
   }).join('');
   content().innerHTML=`
     <div class="toolbar"><div class="spacer"></div><button class="btn hijau" id="addStaff">+ Tambah Anggota</button></div>
     <div class="card"><div class="hd"><h3>Tim / Staff</h3><span class="muted">${r.staff.length} anggota</span></div>
     <div class="bd nopad"><div class="tbl-wrap"><table class="tbl">
-      <thead><tr><th>Nama</th><th>Email</th><th>Peran</th><th>Pengawas</th><th>Akses Invoice</th><th>Kelola Tugas Lain</th><th>Jurnal Klien</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div></div>
-    <p class="muted">• <b>Staff</b>: login sendiri, hanya melihat & mengerjakan tugas yang ditugaskan kepadanya.<br>• <b>Pengawas</b>: memantau & menugaskan hanya untuk <b>timnya</b> (staf yang pengawasnya dia), tanpa akses dashboard finansial.<br>• <b>Akses Invoice</b>: izinkan anggota melihat/mengelola invoice. <b>Kelola Tugas Lain</b>: izinkan mengubah/menyelesaikan tugas milik anggota lain.<br>• <b>Jurnal Klien</b>: izinkan anggota membuka & menjurnal <b>semua buku klien</b> firma (tanpa izin ini, staf/pengawas hanya buku klien yang ditugaskan/tim-nya).</p>`;
+      <thead><tr><th>Nama</th><th>Email</th><th>Peran</th><th>Pengawas</th><th>Akses Invoice</th><th>Kelola Tugas Lain</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div></div>
+    <p class="muted">• <b>Staff</b>: login sendiri, hanya melihat & mengerjakan tugas + buku klien yang ditugaskan kepadanya (jadikan staf <b>Penanggung Jawab</b> klien di menu Klien).<br>• <b>Pengawas</b>: memantau & menugaskan hanya untuk <b>timnya</b> (staf yang pengawasnya dia), tanpa akses dashboard finansial.<br>• <b>Akses Invoice</b>: izinkan anggota melihat/mengelola invoice. <b>Kelola Tugas Lain</b>: izinkan mengubah/menyelesaikan tugas milik anggota lain.</p>`;
   document.getElementById('addStaff').onclick=()=>modalStaff(pengawasList,clients);
   content().querySelectorAll('.tm-sup').forEach(sel=>sel.onchange=async()=>{ try{ await api('PUT','/api/staff/'+sel.dataset.id,{supervisorId:sel.value||null}); viewTim(); }catch(e){alert(e.message);} });
   content().querySelectorAll('[data-role]').forEach(b=>b.onclick=async()=>{ if(!confirm(`Ubah peran menjadi ${b.dataset.to}?`))return; try{ await api('PUT','/api/staff/'+b.dataset.role,{role:b.dataset.to}); viewTim(); }catch(e){alert(e.message);} });
   content().querySelectorAll('[data-inv]').forEach(b=>b.onclick=async()=>{ try{ await api('POST','/api/staff/'+b.dataset.inv+'/perms',{invoice:b.dataset.on!=='1'}); viewTim(); }catch(e){alert(e.message);} });
   content().querySelectorAll('[data-kel]').forEach(b=>b.onclick=async()=>{ try{ await api('POST','/api/staff/'+b.dataset.kel+'/perms',{kelolaTugas:b.dataset.on!=='1'}); viewTim(); }catch(e){alert(e.message);} });
-  content().querySelectorAll('[data-jur]').forEach(b=>b.onclick=async()=>{ try{ await api('POST','/api/staff/'+b.dataset.jur+'/perms',{jurnalKlien:b.dataset.on!=='1'}); viewTim(); }catch(e){alert(e.message);} });
   content().querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{ if(!confirm('Hapus anggota ini? Akun login-nya akan dihapus.'))return; try{await api('DELETE','/api/staff/'+b.dataset.del); viewTim();}catch(e){alert(e.message);} });
 }
 function modalStaff(pengawasList,clients){
