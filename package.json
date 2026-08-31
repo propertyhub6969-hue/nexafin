@@ -1,0 +1,16 @@
+{
+  "name": "web-akunting",
+  "version": "1.0.0",
+  "description": "Aplikasi web akuntansi & laporan keuangan (SAK/PSAK) multi-user - tanpa dependensi eksternal",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "author": "",
+  "license": "UNLICENSED",
+  "private": true
+}
