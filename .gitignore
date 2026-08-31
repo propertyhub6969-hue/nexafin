@@ -1,0 +1,10 @@
+﻿node.exe
+npm
+npx
+node_modules/
+db.json
+.secret
+*.secret
+data/
+*.log
+*.tmp
