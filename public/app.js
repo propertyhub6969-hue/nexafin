@@ -246,7 +246,7 @@ function renderApp(){
     menu.push({v:'kotakmasuk',t:'Kotak Masuk Jurnal',e:'📨'});
     menu.push({v:'pengingat',t:'Pengingat SPT',e:'🔔'});
     menu.push({v:'klien',t:'Klien',e:'🏢'});
-    if(u.role==='admin'||u.role==='user'||u.role==='pengawas') menu.push({v:'penugasan',t:'Penugasan',e:'🧩'});
+    if(u.role==='admin'||u.role==='user'||(State.meta&&State.meta.isPJ)) menu.push({v:'penugasan',t:'Penugasan',e:'🧩'});
     menu.push({v:'pekerjaan',t:'Pekerjaan / SPT',e:'✅'});
     menu.push({v:'arsip',t:'Arsip Dokumen',e:'🗄️'});
     const isAdminRole=u.role==='admin'||u.role==='user';
@@ -276,7 +276,7 @@ function renderApp(){
   const title=(menu.find(m=>m.v===State.view)||{}).t||'Dashboard';
   const roBook=!viewingOther()&&BOOK_VIEWS.has(State.view)&&curBookInfo()&&curBookInfo().canWrite===false;
   const banner=viewingOther()?`<div class="pesan ok" style="margin:0 26px;margin-top:14px">👁️ Melihat data: <b>${esc(State.viewCompanyName)}</b> (mode baca-saja). <a href="#" id="kembaliData">Kembali ke data saya</a></div>`
-    :(roBook?`<div class="pesan ok" style="margin:0 26px;margin-top:14px">👁️ Buku <b>${esc(curBookInfo().name)}</b> — <b>mode lihat</b>. Anda ditugaskan bagian perpajakan (SPT) untuk klien ini, bukan pembukuan; perubahan buku hanya oleh staf pembukuan / pengawas penanggung jawab.</div>`:'');
+    :(roBook?`<div class="pesan ok" style="margin:0 26px;margin-top:14px">👁️ Buku <b>${esc(curBookInfo().name)}</b> — <b>mode lihat</b>. Anda ditugaskan bagian perpajakan (SPT) untuk klien ini, bukan pembukuan; perubahan buku hanya oleh pelaksana pembukuan / penanggung jawab (PJ).</div>`:'');
 
   root().innerHTML=`
   <div class="app">
@@ -291,7 +291,7 @@ function renderApp(){
         <div class="kanan">
           ${bookSwitcherHTML()}
           <a href="#" id="bellBtn" title="Pengingat tenggat SPT" style="position:relative;text-decoration:none;font-size:19px;line-height:1">🔔<span id="bellCount" style="position:absolute;top:-7px;right:-9px;background:var(--merah);color:#fff;border-radius:10px;font-size:10px;font-weight:700;padding:1px 5px;display:none"></span></a>
-          <span class="badge ${isAdmin?'admin':''}">${u.role==='staff'?'Staff':u.role==='pengawas'?'Pengawas':u.role==='klien-staff'?'Staf Klien':(isAdmin?'Admin/Pemilik':'Pengguna')}</span>
+          <span class="badge ${isAdmin?'admin':''}">${u.role==='staff'?'Anggota':u.role==='klien-staff'?'Staf Klien':(isAdmin?'Admin/Pemilik':'Pengguna')}</span>
           <div class="avatar">${esc((u.name||'?').slice(0,1).toUpperCase())}</div>
           <button class="btn abu kecil" id="btnLogout">Keluar</button>
         </div>
@@ -651,7 +651,7 @@ async function modalKunciPeriode(){
     <td class="right">${l.locked?`<button class="btn abu kecil" data-unlock="${l.periode}">Buka</button>`:`<button class="btn abu kecil" data-lock="${l.periode}">Kunci</button>`}</td></tr>`).join('')||'<tr><td colspan="4" class="muted" style="text-align:center;padding:12px">Belum ada periode dikunci.</td></tr>';
   wrap.innerHTML=`<div class="modal" style="max-width:560px"><div class="hd"><h3>🔒 Kunci Periode — ${esc((curBookInfo()||{}).name||'')}</h3><button class="x">&times;</button></div>
     <div class="bd"><div id="lkMsg"></div>
-      <p class="muted" style="margin-top:0">Periode terkunci: jurnal di bulan itu tidak bisa ditambah/diubah/dihapus. Hanya pengawas/konsultan yang dapat mengunci & membuka. Membuka wajib beri alasan.</p>
+      <p class="muted" style="margin-top:0">Periode terkunci: jurnal di bulan itu tidak bisa ditambah/diubah/dihapus. Hanya admin/konsultan yang dapat mengunci & membuka. Membuka wajib beri alasan.</p>
       <div class="flex" style="align-items:flex-end;gap:8px"><div class="field" style="margin:0"><label>Kunci periode baru</label><input type="month" id="lkBulan" value="${ymNow()}"></div><button class="btn hijau" id="lkAdd">Kunci</button></div>
       <div class="tbl-wrap mt"><table class="tbl"><thead><tr><th>Periode</th><th>Status</th><th>Keterangan</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
     </div></div>`;
@@ -1923,7 +1923,7 @@ async function viewKlien(){
   const rows=clients.map(c=>{
     const s=staff.find(x=>x.id===c.assignedTo);
     const pemb=(Array.isArray(c.pembukuanBy)?c.pembukuanBy:[]).map(id=>(staff.find(x=>x.id===id)||{}).name).filter(Boolean);
-    const pjCell=`${s?`👤 ${esc(s.name)} <span class="muted" style="font-size:11px">(pengawas)</span>`:esc(c.pic||'-')}${pemb.length?`<div class="muted" style="font-size:11px">📒 pembukuan: ${esc(pemb.join(', '))}</div>`:''}`;
+    const pjCell=`${s?`👤 ${esc(s.name)} <span class="muted" style="font-size:11px">(PJ)</span>`:esc(c.pic||'-')}${pemb.length?`<div class="muted" style="font-size:11px">📒 pembukuan: ${esc(pemb.join(', '))}</div>`:''}`;
     return `<tr>
       <td><b>${esc(c.nama)}</b></td><td class="kode">${esc(c.npwp||'-')}</td>
       <td>${esc(c.jenisUsaha||'-')}</td><td>${pjCell}</td>
@@ -2011,7 +2011,7 @@ async function viewPenugasan(){
         <tbody>${rows}</tbody></table></div>
     </div></div>`;
   const flash=(t)=>{ const el=document.getElementById('pnMsg'); if(el){ const o=el.textContent; el.textContent=t; el.style.color='var(--aksen)'; setTimeout(()=>{el.textContent=o;el.style.color='';},1500); } };
-  content().querySelectorAll('.pn-pj').forEach(sel=>sel.onchange=async()=>{ try{ await api('PUT','/api/clients/'+sel.dataset.id,{assignedTo:sel.value||null}); flash('✓ pengawas disimpan'); }catch(e){ alert(e.message); viewPenugasan(); } });
+  content().querySelectorAll('.pn-pj').forEach(sel=>sel.onchange=async()=>{ try{ await api('PUT','/api/clients/'+sel.dataset.id,{assignedTo:sel.value||null}); flash('✓ PJ disimpan'); }catch(e){ alert(e.message); viewPenugasan(); } });
   // Tambah/hapus pelaksana (pembukuan/pajak) → hitung ulang daftar dari data klien, simpan, render ulang.
   const curIds=(cid,kind)=>{ const c=clients.find(x=>x.id===cid); return new Set(Array.isArray(c&&c[kind])?c[kind]:[]); };
   const savePel=async(cid,kind,set)=>{ try{ await api('PUT','/api/clients/'+cid,{[kind]:[...set]}); flash('✓ tersimpan'); viewPenugasan(); }catch(e){ alert(e.message); viewPenugasan(); } };
@@ -2301,18 +2301,12 @@ async function viewTim(){
   const clients=cl.clients||[];
   const tasks=tk.tasks||[];
   const isAdminRole=State.user.role==='admin'||State.user.role==='user';   // PJ non-admin juga bisa buka menu ini (kelola akun rosternya)
-  const pengawasList=r.staff.filter(s=>s.role==='pengawas');
-  const peranBadge=(role)=>role==='pengawas'?'<span class="badge admin">Pengawas</span>':role==='staff'?'<span class="badge">Staff</span>':role==='klien-staff'?'<span class="badge" style="background:#0a8a61">Staf Klien</span>':'<span class="badge admin">Konsultan/Admin</span>';
-  // Kolom "Menangani": klien yang dipegang tiap anggota + perannya (pembukuan/SPT/pengawas)
+  const peranBadge=(role)=>role==='staff'?'<span class="badge">Anggota</span>':role==='klien-staff'?'<span class="badge" style="background:#0a8a61">Staf Klien</span>':'<span class="badge admin">Admin</span>';
   const chipK=(t)=>`<span class="chip" style="background:var(--garis2);color:var(--teks2);font-size:11px;margin:1px 2px;display:inline-block">${t}</span>`;
+  // Kolom "Menangani": klien yang dipegang tiap anggota + perannya (PJ/pembukuan/pajak).
   const menanganiCell=(s)=>{
     if(s.role==='admin'||s.role==='user') return '<span class="muted">semua klien firma</span>';
     if(s.role==='klien-staff') return chipK('🏢 '+esc(s.clientName||'—'));
-    if(s.role==='pengawas'){
-      const pj=clients.filter(c=>c.assignedTo===s.id);
-      return pj.length?pj.map(c=>chipK('👤 '+esc(c.nama))).join(''):'<span class="muted" style="font-size:12px">— belum dititipi klien —</span>';
-    }
-    // staff firma: PJ (assignedTo) + pembukuan (pembukuanBy) + pajak (perpajakanBy / punya tugas SPT)
     const pj=clients.filter(c=>c.assignedTo===s.id).map(c=>c.nama);
     const pemb=clients.filter(c=>Array.isArray(c.pembukuanBy)&&c.pembukuanBy.includes(s.id)).map(c=>c.nama);
     const perp=clients.filter(c=>Array.isArray(c.perpajakanBy)&&c.perpajakanBy.includes(s.id)).map(c=>c.nama);
@@ -2322,20 +2316,14 @@ async function viewTim(){
     return out.length?out.join(''):'<span class="muted" style="font-size:12px">belum ditugaskan</span>';
   };
   const rows=r.staff.map(s=>{
-    const anggota=(s.role==='staff'||s.role==='pengawas'); const self=s.id===State.user.id;
-    const ks=s.role==='klien-staff';
+    const anggota=s.role==='staff'; const self=s.id===State.user.id; const ks=s.role==='klien-staff';
     const inv=s.perms&&s.perms.invoice;
-    // Kontrol admin-only: dropdown pengawas, ubah peran, izin invoice, hapus. PJ hanya reset password/edit.
-    const supCell=(isAdminRole&&s.role==='staff')
-      ? `<select class="tm-sup" data-id="${s.id}" style="min-width:150px"><option value="">— tanpa pengawas —</option>${pengawasList.map(p=>`<option value="${p.id}" ${s.supervisorId===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select>`
-      : (ks?`<span class="muted">buku: ${esc(s.clientName||'—')}</span>`:(s.supervisorName?`<span class="muted">${esc(s.supervisorName)}</span>`:'<span class="muted">—</span>'));
-    const roleCell=(isAdminRole&&anggota&&!self)?`${peranBadge(s.role)} <button class="btn abu kecil" data-role="${s.id}" data-to="${s.role==='pengawas'?'staff':'pengawas'}">${s.role==='pengawas'?'→ Staf':'→ Pengawas'}</button>`:peranBadge(s.role);
     const invCell=!anggota?(ks?'<span class="muted">—</span>':'<span class="chip baik">Penuh</span>')
       :(isAdminRole?`<button class="btn ${inv?'hijau':'abu'} kecil" data-inv="${s.id}" data-on="${inv?1:0}">${inv?'✓':'beri'}</button>`:(inv?'<span class="chip baik">✓</span>':'<span class="muted">—</span>'));
     const kelolaBtn=self?'':`<button class="btn abu kecil" data-kelola="${s.id}" title="Reset kata sandi / ubah nama & email">🔑 Kelola</button>`;
     const delBtn=(isAdminRole&&!self&&(anggota||ks))?` <button class="btn abu kecil" data-del="${s.id}">Hapus</button>`:'';
-    return `<tr><td><b>${esc(s.name)}</b></td><td>${esc(s.email)}</td><td>${roleCell}</td><td>${supCell}</td>
-      <td style="max-width:280px;white-space:normal">${menanganiCell(s)}</td>
+    return `<tr><td><b>${esc(s.name)}</b></td><td>${esc(s.email)}</td><td>${peranBadge(s.role)}</td>
+      <td style="max-width:300px;white-space:normal">${menanganiCell(s)}</td>
       <td>${invCell}</td>
       <td class="right">${kelolaBtn}${delBtn}</td></tr>`;
   }).join('');
@@ -2343,18 +2331,16 @@ async function viewTim(){
     <div class="toolbar"><div class="spacer"></div><button class="btn hijau" id="addStaff">+ Tambah Anggota</button></div>
     <div class="card"><div class="hd"><h3>Tim / Staff</h3><span class="muted">${r.staff.length} anggota</span></div>
     <div class="bd nopad"><div class="tbl-wrap"><table class="tbl">
-      <thead><tr><th>Nama</th><th>Email</th><th>Peran</th><th>Pengawas</th><th>Menangani (Klien)</th><th>Akses Invoice</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div></div>
-    <p class="muted">• <b>Menangani</b>: <span class="chip" style="font-size:11px">👤 pengawas penanggung jawab</span> <span class="chip" style="font-size:11px">📒 staf pembukuan</span> <span class="chip" style="font-size:11px">🧾 staf perpajakan (SPT)</span> <span class="chip" style="font-size:11px">🏢 buku perusahaannya (staf klien)</span>. Atur penugasan di menu <b>Klien</b> (Pengawas & Staf Pembukuan) dan <b>Pekerjaan/SPT</b> (perpajakan).<br>• <b>Staff</b>: hanya tugas + buku klien yang ditugaskan kepadanya.<br>• <b>Pengawas</b>: memantau, menugaskan & mengelola tugas hanya untuk <b>timnya</b>, tanpa akses dashboard finansial.<br>• <b>Akses Invoice</b>: izinkan anggota melihat/mengelola invoice.</p>`;
-  document.getElementById('addStaff').onclick=()=>modalStaff(pengawasList,clients,isAdminRole);
-  content().querySelectorAll('.tm-sup').forEach(sel=>sel.onchange=async()=>{ try{ await api('PUT','/api/staff/'+sel.dataset.id,{supervisorId:sel.value||null}); viewTim(); }catch(e){alert(e.message);} });
-  content().querySelectorAll('[data-role]').forEach(b=>b.onclick=async()=>{ if(!confirm(`Ubah peran menjadi ${b.dataset.to}?`))return; try{ await api('PUT','/api/staff/'+b.dataset.role,{role:b.dataset.to}); viewTim(); }catch(e){alert(e.message);} });
+      <thead><tr><th>Nama</th><th>Email</th><th>Peran</th><th>Menangani (Klien)</th><th>Akses Invoice</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div></div>
+    <p class="muted">• <b>Menangani</b>: <span class="chip" style="font-size:11px">👤 penanggung jawab (PJ)</span> <span class="chip" style="font-size:11px">📒 pelaksana pembukuan</span> <span class="chip" style="font-size:11px">🧾 pelaksana pajak</span> <span class="chip" style="font-size:11px">🏢 buku perusahaannya (staf klien)</span>. Atur di menu <b>🧩 Penugasan</b>.<br>• Peran <b>per-klien</b> (PJ/pelaksana), bukan titel tetap — satu orang bisa PJ di klien A & pelaksana di klien B.<br>• <b>🔑 Kelola</b>: reset kata sandi / ubah nama & email. <b>Akses Invoice</b>: izinkan anggota melihat/mengelola invoice.</p>`;
+  document.getElementById('addStaff').onclick=()=>modalStaff(clients,isAdminRole);
   content().querySelectorAll('[data-inv]').forEach(b=>b.onclick=async()=>{ try{ await api('POST','/api/staff/'+b.dataset.inv+'/perms',{invoice:b.dataset.on!=='1'}); viewTim(); }catch(e){alert(e.message);} });
   content().querySelectorAll('[data-kelola]').forEach(b=>b.onclick=()=>{ const m=r.staff.find(x=>x.id===b.dataset.kelola); if(m) modalKelolaAkun(m); });
   content().querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{ if(!confirm('Hapus anggota ini? Akun login-nya akan dihapus.'))return; try{await api('DELETE','/api/staff/'+b.dataset.del); viewTim();}catch(e){alert(e.message);} });
 }
-function modalStaff(pengawasList,clients,isAdmin){
-  pengawasList=pengawasList||[]; clients=clients||[]; isAdmin=isAdmin!==false;
-  // Non-admin (PJ): hanya boleh buat Staff firma / Staf klien (untuk klien yang dia pegang).
+function modalStaff(clients,isAdmin){
+  clients=clients||[]; isAdmin=isAdmin!==false;
+  // Non-admin (PJ): Staf klien hanya untuk klien yang dia pegang.
   const klienOpt=(isAdmin?clients:clients.filter(c=>c.assignedTo===State.user.id));
   const wrap=document.createElement('div'); wrap.className='modal-bg';
   wrap.innerHTML=`<div class="modal" style="max-width:460px"><div class="hd"><h3>Tambah Anggota</h3><button class="x">&times;</button></div>
@@ -2362,10 +2348,10 @@ function modalStaff(pengawasList,clients,isAdmin){
       <div class="field"><label>Nama</label><input id="sNama"></div>
       <div class="field"><label>Email (untuk login)</label><input id="sEmail" type="email"></div>
       <div class="field"><label>Kata Sandi Awal (min. 6)</label><input id="sPass" type="text" placeholder="beritahukan ke anggota"></div>
-      <div class="field"><label>Peran</label><select id="sRole"><option value="staff">Staff firma</option>${isAdmin?'<option value="pengawas">Pengawas</option>':''}<option value="klien-staff">Staf perusahaan klien</option></select></div>
-      ${isAdmin?`<div class="field" id="sSupWrap"><label>Pengawas (untuk Staff)</label><select id="sSup"><option value="">— tanpa pengawas —</option>${pengawasList.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>`:''}
+      <div class="field"><label>Jenis Akun</label><select id="sRole"><option value="staff">Anggota firma</option><option value="klien-staff">Staf perusahaan klien</option></select></div>
       <div class="field" id="sKlienWrap" style="display:none"><label>Klien yang ditangani (buku miliknya)</label><select id="sKlien"><option value="">— pilih klien —</option>${klienOpt.map(c=>`<option value="${c.id}">${esc(c.nama)}</option>`).join('')}</select>
         <div class="muted" style="font-size:12px;margin-top:4px">Staf ini hanya bisa membuka buku klien tersebut & jurnalnya berstatus draf sampai disetujui.</div></div>
+      <p class="muted" style="font-size:12px;margin:6px 0 0">💡 Peran (penanggung jawab / pelaksana) diatur per-klien di menu <b>🧩 Penugasan</b> setelah akun dibuat.</p>
       <div class="flex mt"><div class="spacer"></div><button class="btn abu" id="sBatal">Batal</button><button class="btn hijau" id="sSimpan">Buat Akun</button></div>
     </div></div>`;
   document.body.appendChild(wrap);
