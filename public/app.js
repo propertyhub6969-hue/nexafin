@@ -253,7 +253,7 @@ function renderApp(){
     const canInv=isAdminRole||(u.perms&&u.perms.invoice);
     if(canInv) menu.push({v:'invoice',t:'Invoice Klien',e:'🧾'});
     if(isAdminRole||(State.meta&&State.meta.isPJ)) menu.push({v:'tim',t:'Tim / Staff',e:'👥'});
-    if(isAdmin){ menu.push({grp:'Pengaturan Lanjut'}); menu.push({v:'admin',t:'Kelola Pengguna',e:'👤'}); menu.push({v:'setelanai',t:'Setelan AI',e:'🤖'}); }
+    if(isAdmin){ menu.push({grp:'Pengaturan Lanjut'}); menu.push({v:'admin',t:'Kelola Pengguna',e:'👤'}); menu.push({v:'libur',t:'Kelola Libur',e:'📅'}); menu.push({v:'setelanai',t:'Setelan AI',e:'🤖'}); }
     menu.push({v:'pengaturan',t:'Profil & Perusahaan',e:'⚙️'});
   }
   // jaga: bila view aktif tak ada di menu (mis. peran berganti), kembali ke dashboard
@@ -328,7 +328,7 @@ async function routeView(){
     const map={dashboard:viewDashboard,jurnal:viewJurnal,bukubesar:viewBukuBesar,neracasaldo:viewNeracaSaldo,
       labarugi:viewLabaRugi,neraca:viewNeraca,ekuitas:viewPerubahanEkuitas,aruskas:viewArusKas,calk:viewCALK,anggaran:viewAnggaran,varians:viewVarians,
       rekonsiliasi:viewRekonsiliasi,aset:viewAsetTetap,akun:viewAkun,admin:viewAdmin,pengaturan:viewPengaturan,
-      impor:viewImpor,insight:viewInsight,setelanai:viewSetelanAI,
+      impor:viewImpor,insight:viewInsight,setelanai:viewSetelanAI,libur:viewLibur,
       konsultan:viewKonsultan,klien:viewKlien,penugasan:viewPenugasan,pekerjaan:viewPekerjaan,invoice:viewInvoiceKlien,arsip:viewArsip,tim:viewTim,pengingat:viewPengingat,kotakmasuk:viewKotakMasuk};
     const fn=map[State.view]||viewDashboard;
     await fn();
@@ -1384,6 +1384,59 @@ async function viewAdmin(){
   });
 }
 
+/* ============ KELOLA LIBUR (owner-only, global) ============ */
+function parseLiburText(text){
+  const out=[];
+  (text||'').split(/\r?\n/).forEach(line=>{
+    line=(line||'').trim(); if(!line) return;
+    const m=line.match(/^(\d{4}-\d{2}-\d{2})[\s,;\t]+(.+)$/);
+    if(m) out.push({date:m[1], nama:m[2].trim()});
+  });
+  return out;
+}
+async function viewLibur(){
+  const r=await api('GET','/api/consult/holidays');
+  const holidays=(r.holidays||[]).slice().sort((a,b)=>a.date.localeCompare(b.date));
+  const rows=holidays.map(h=>`<tr>
+      <td>${esc(h.date)}</td><td>${esc(h.nama)}</td>
+      <td>${h.custom?'<span class="chip aset">Ditambahkan</span>':'<span class="chip">Tetap</span>'}</td>
+      <td class="right">${h.custom?`<button class="btn abu kecil" data-holdel="${h.date}">Hapus</button>`:''}</td></tr>`).join('')||'<tr><td colspan="4" class="muted" style="text-align:center;padding:12px">Belum ada.</td></tr>';
+  content().innerHTML=`
+    <div class="card"><div class="hd"><h3>📅 Kelola Kalender Libur (Global)</h3><span class="muted">${holidays.length} tanggal</span></div>
+    <div class="bd">
+      <p class="muted" style="margin-top:0">Kalender ini <b>berlaku untuk SEMUA pengguna</b> — cukup Anda (pemilik) yang kelola, tak perlu tiap firma. Tenggat <b>SPT Masa</b> yang jatuh di Sabtu/Minggu/libur otomatis mundur ke hari kerja berikutnya. Libur tanggal-tetap (1 Jan, 1 Mei, 1 Jun, 17 Agu, 25 Des) sudah termasuk otomatis.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div class="card"><div class="hd"><h3>⚡ Impor Cepat</h3></div><div class="bd">
+          <p class="muted" style="margin-top:0;font-size:12.5px">Data bawaan <b>SKB 3 Menteri 2026</b> (sumber: Setneg, diambil 2026-09-02). ⚠️ <b>Verifikasi ulang</b> ke SKB resmi — cuti bersama bisa direvisi pemerintah.</p>
+          <button class="btn hijau" id="loadBawaan">📥 Muat Libur 2026 (SKB 3 Menteri)</button>
+        </div></div>
+        <div class="card"><div class="hd"><h3>✍️ Tempel Manual</h3></div><div class="bd">
+          <p class="muted" style="margin-top:0;font-size:12.5px">Tempel daftar (satu per baris): <code>2026-01-01 Tahun Baru</code> — pemisah spasi/koma/tab.</p>
+          <textarea id="pasteLibur" rows="5" style="width:100%;font-family:monospace;font-size:12px" placeholder="2026-01-01 Tahun Baru Masehi&#10;2026-03-19 Hari Suci Nyepi"></textarea>
+          <button class="btn hijau" id="importPaste" style="margin-top:6px">Impor dari Tempelan</button>
+          <div id="pasteMsg" style="margin-top:6px;font-size:12.5px"></div>
+        </div></div>
+      </div>
+      <div class="tbl-wrap" style="margin-top:14px"><table class="tbl">
+        <thead><tr><th>Tanggal</th><th>Nama</th><th>Jenis</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+    </div></div>`;
+  document.getElementById('loadBawaan').onclick=async()=>{
+    try{
+      const bw=await api('GET','/api/consult/holidays/bawaan?tahun=2026');
+      const res=await api('POST','/api/consult/holidays/import',{items:bw.items});
+      alert(`Impor libur 2026 selesai: ${res.ditambah} ditambah, ${res.dilewati} dilewati (sudah tercakup).`);
+      viewLibur();
+    }catch(e){ alert(e.message); }
+  };
+  document.getElementById('importPaste').onclick=async()=>{
+    const items=parseLiburText(document.getElementById('pasteLibur').value);
+    if(!items.length){ document.getElementById('pasteMsg').innerHTML='<span class="neg">Tidak ada baris valid (format: YYYY-MM-DD Nama).</span>'; return; }
+    try{ const res=await api('POST','/api/consult/holidays/import',{items}); alert(`Impor selesai: ${res.ditambah} ditambah, ${res.dilewati} dilewati.`); viewLibur(); }
+    catch(e){ alert(e.message); }
+  };
+  content().querySelectorAll('[data-holdel]').forEach(b=>b.onclick=async()=>{ if(!confirm('Hapus libur ini?'))return; try{ await api('DELETE','/api/consult/holidays/'+b.dataset.holdel); viewLibur(); }catch(e){alert(e.message);} });
+}
+
 /* ============ PENGATURAN ============ */
 async function viewPengaturan(){
   content().innerHTML=`
@@ -1843,7 +1896,6 @@ async function viewPengingat(){
   const {clients,staff}=await loadKlienStaff();
   const r=await api('GET','/api/consult/reminders?days=60');
   const canManage=State.user.role!=='staff';
-  const hol=canManage?await api('GET','/api/consult/holidays'):{holidays:[]};
   // notifikasi browser otomatis (bila diizinkan)
   try{ if(window.Notification && Notification.permission==='granted' && (r.counts.overdue+r.counts.soon)>0 && !window._notifShown){ window._notifShown=true; new Notification('Pengingat Tenggat SPT — Nexafin',{body:`${r.counts.overdue} terlambat, ${r.counts.soon} jatuh tempo ≤ 7 hari.`}); } }catch(e){}
   const tabel=(judul,arr,kelas)=>arr.length?`<div class="card"><div class="hd"><h3>${judul}</h3><span class="chip ${kelas}">${arr.length}</span></div>
@@ -1885,19 +1937,7 @@ async function viewPengingat(){
     <div class="card"><div class="hd"><h3>📌 Referensi Tenggat SPT (default)</h3></div><div class="bd nopad"><div class="tbl-wrap"><table class="tbl">
       <thead><tr><th>Jenis SPT</th><th>Batas Lapor</th></tr></thead>
       <tbody>${meta.jenisSPT.map(j=>`<tr><td>${esc(j)}</td><td>${deadlineInfoFE(j)}</td></tr>`).join('')}</tbody>
-    </table></div></div><div class="bd"><p class="muted" style="font-size:12.5px">Catatan: tenggat mengikuti ketentuan umum dan dapat berubah sesuai peraturan/hari libur. Selalu verifikasi dengan aturan terbaru DJP.</p></div></div>
-    ${canManage?`<div class="card"><div class="hd"><h3>📅 Kelola Hari Libur (Tanggal Merah)</h3></div><div class="bd">
-      <p class="muted">Tambahkan libur nasional/cuti bersama (mis. Idul Fitri, Nyepi, Waisak, cuti bersama). Tenggat <b>SPT Masa</b> yang jatuh di Sabtu/Minggu/hari libur otomatis diberi keterangan mundur ke hari kerja berikutnya. Libur tanggal tetap (1 Jan, 1 Mei, 1 Jun, 17 Agu, 25 Des) sudah termasuk.</p>
-      <div id="holMsg"></div>
-      <div class="flex" style="align-items:end">
-        <div class="field" style="margin:0"><label>Tanggal</label><input type="date" id="holDate"></div>
-        <div class="field" style="margin:0;flex:1"><label>Nama Libur</label><input id="holNama" placeholder="mis. Cuti Bersama Idul Fitri"></div>
-        <button class="btn hijau" id="holAdd">Tambah</button>
-      </div>
-      <div class="tbl-wrap mt"><table class="tbl"><thead><tr><th>Tanggal</th><th>Keterangan</th><th>Sumber</th><th></th></tr></thead>
-        <tbody>${hol.holidays.map(h=>`<tr><td>${esc(h.date)}</td><td>${esc(h.nama)}</td><td>${h.custom?'<span class="chip aset">Ditambahkan</span>':'<span class="chip">Bawaan</span>'}</td><td class="right">${h.custom?`<button class="btn abu kecil" data-holdel="${h.date}">Hapus</button>`:''}</td></tr>`).join('')||'<tr><td colspan="4" class="muted" style="text-align:center;padding:12px">Belum ada.</td></tr>'}</tbody>
-      </table></div>
-    </div></div>`:''}`;
+    </table></div></div><div class="bd"><p class="muted" style="font-size:12.5px">Catatan: tenggat mengikuti ketentuan umum & hari libur nasional; penyesuaian akhir pekan/libur dihitung otomatis. Kalender libur dikelola terpusat oleh pemilik. Selalu verifikasi dengan aturan terbaru DJP.</p></div></div>`;
   content().querySelectorAll('[data-done]').forEach(b=>b.onclick=()=>modalSelesai(b.dataset.done,viewPengingat));
   const notifOn=document.getElementById('notifOn');
   if(notifOn) notifOn.onclick=async()=>{ try{ const p=await Notification.requestPermission(); if(p==='granted'){ new Notification('Notifikasi Nexafin aktif',{body:'Anda akan diingatkan tenggat SPT saat aplikasi dibuka.'}); } viewPengingat(); }catch(e){} };
@@ -1909,10 +1949,6 @@ async function viewPengingat(){
     try{ const res=await api('POST','/api/consult/generate-spt',body); document.getElementById('genMsg').innerHTML=`<div class="pesan ok">${res.dibuat} tugas dibuat${res.dilewati?`, ${res.dilewati} dilewati (sudah ada)`:''}.</div>`; setTimeout(viewPengingat,900); }
     catch(e){ document.getElementById('genMsg').innerHTML=`<div class="pesan err">${esc(e.message)}</div>`; }
   };
-  const holAdd=document.getElementById('holAdd');
-  if(holAdd) holAdd.onclick=async()=>{ const date=document.getElementById('holDate').value; const nama=document.getElementById('holNama').value; if(!date){alert('Pilih tanggal.');return;}
-    try{ await api('POST','/api/consult/holidays',{date,nama}); viewPengingat(); }catch(e){ document.getElementById('holMsg').innerHTML=`<div class="pesan err">${esc(e.message)}</div>`; } };
-  content().querySelectorAll('[data-holdel]').forEach(b=>b.onclick=async()=>{ if(!confirm('Hapus hari libur ini?'))return; await api('DELETE','/api/consult/holidays/'+b.dataset.holdel); viewPengingat(); });
 }
 
 /* ============ KLIEN ============ */
