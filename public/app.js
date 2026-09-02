@@ -1063,17 +1063,22 @@ async function viewAsetTetap(){
   window._asetMeta=meta;
   const ro=bookRO();
   const fisLabel=(k)=>(meta.fiskal[k]&&meta.fiskal[k].label)||k;
-  const rows=(r.assets||[]).map(a=>`<tr>
-      <td><b>${esc(a.nama)}</b>${a.aktif===false?' <span class="chip buruk">nonaktif</span>':''}<div class="muted" style="font-size:12px">${esc(a.tanggalPerolehan)} · ${esc((meta.metode[a.metode]||a.metode))} · ${a.masaManfaat} th</div></td>
+  const rows=(r.assets||[]).map(a=>{
+    const lps=a.dilepas;
+    const badge=lps?` <span class="chip aset">dilepas</span>`:(a.aktif===false?' <span class="chip buruk">nonaktif</span>':'');
+    const lrTxt=lps&&lps.labaRugi!=null?(lps.labaRugi>=0?` · laba ${fmtNum(lps.labaRugi)}`:` · rugi ${fmtNum(-lps.labaRugi)}`):'';
+    const aksi=lps
+      ? `<button class="btn abu kecil" data-jadwal="${a.id}">Jadwal</button>`
+      : `<button class="btn abu kecil" data-jadwal="${a.id}">Jadwal</button>${ro?'':` <button class="btn abu kecil" data-edit="${a.id}">Ubah</button> <button class="btn abu kecil" data-lepas="${a.id}" title="Jual / buang aset">📤 Lepas</button> <button class="btn abu kecil" data-del="${a.id}">Hapus</button>`}`;
+    return `<tr>
+      <td><b>${esc(a.nama)}</b>${badge}<div class="muted" style="font-size:12px">${esc(a.tanggalPerolehan)} · ${esc((meta.metode[a.metode]||a.metode))} · ${a.masaManfaat} th${lps?` · dilepas ${esc(lps.tanggal)}${lrTxt}`:''}</div></td>
       <td class="num">${fmtNum(a.harga)}</td>
       <td class="num">${fmtNum(a.akumKomersial)}</td>
-      <td class="num"><b>${fmtNum(a.nilaiBukuKomersial)}</b></td>
+      <td class="num"><b>${lps?'—':fmtNum(a.nilaiBukuKomersial)}</b></td>
       <td>${esc(fisLabel(a.kelompokFiskal))}</td>
-      <td class="right">
-        <button class="btn abu kecil" data-jadwal="${a.id}">Jadwal</button>
-        ${ro?'':`<button class="btn abu kecil" data-edit="${a.id}">Ubah</button>
-        <button class="btn abu kecil" data-del="${a.id}">Hapus</button>`}</td>
-    </tr>`).join('')||'<tr><td colspan="6" class="muted" style="text-align:center;padding:16px">Belum ada aset tetap.</td></tr>';
+      <td class="right">${aksi}</td>
+    </tr>`;
+  }).join('')||'<tr><td colspan="6" class="muted" style="text-align:center;padding:16px">Belum ada aset tetap.</td></tr>';
   content().innerHTML=`
     ${bookBanner()}
     <div class="toolbar" style="flex-wrap:wrap;gap:8px">
@@ -1095,6 +1100,7 @@ async function viewAsetTetap(){
     document.getElementById('asAdd').onclick=()=>modalAset(null,meta);
     document.getElementById('asRun').onclick=()=>jalankanPenyusutan(sampai);
     content().querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{ const a=(r.assets||[]).find(x=>x.id===b.dataset.edit); modalAset(a,meta); });
+    content().querySelectorAll('[data-lepas]').forEach(b=>b.onclick=()=>{ const a=(r.assets||[]).find(x=>x.id===b.dataset.lepas); modalLepasAset(a); });
     content().querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{ if(!confirm('Hapus aset ini? Jurnal penyusutan yang sudah diposting tetap tersimpan.'))return; try{ const x=await api('DELETE',burl('/assets/'+b.dataset.del)); if(x.catatan)alert(x.catatan); viewAsetTetap(); }catch(e){alert(e.message);} });
   }
 }
@@ -1107,6 +1113,37 @@ async function jalankanPenyusutan(sampai){
     if(r.dilewati)msg+=` ${r.dilewati} aset dilewati (akun beban/akumulasi belum diatur).`;
     alert(msg); viewAsetTetap();
   }catch(e){ alert(e.message); }
+}
+function modalLepasAset(a){
+  const accs=(State.accounts||[]);
+  const opt=(list)=>list.map(x=>`<option value="${x.code}">${esc(x.code)} — ${esc(x.name)}</option>`).join('');
+  const kasList=accs.filter(x=>x.isCash); const kasOpts=(kasList.length?kasList:accs);
+  const wrap=document.createElement('div'); wrap.className='modal-bg';
+  wrap.innerHTML=`<div class="modal" style="max-width:540px"><div class="hd"><h3>📤 Lepas / Jual Aset — ${esc(a.nama)}</h3><button class="x">&times;</button></div>
+    <div class="bd"><div id="lpMsg"></div>
+      <p class="muted" style="margin-top:0">Nilai buku komersial terkini: <b>${fmtNum(a.nilaiBukuKomersial)}</b> (harga ${fmtNum(a.harga)} − akum ${fmtNum(a.akumKomersial)}). <b>Laba/rugi</b> = harga jual − nilai buku, dihitung tepat saat simpan (termasuk penyusutan s/d tanggal pelepasan). Jurnal pelepasan diposting otomatis & penyusutan dihentikan.</p>
+      <div class="flex">
+        <div class="field" style="flex:1"><label>Tanggal Pelepasan</label><input type="date" id="lpTgl" value="${todayStr()}"></div>
+        <div class="field" style="flex:1"><label>Harga Jual (Rp) <span class="muted">— 0 jika dibuang</span></label><input type="number" id="lpHarga" value="0" min="0"></div>
+      </div>
+      <div class="field"><label>Akun Kas/Bank penerima <span class="muted">(wajib bila dijual)</span></label><select id="lpKas"><option value="">— pilih —</option>${opt(kasOpts)}</select></div>
+      <div class="field"><label>Akun Laba/Rugi Pelepasan Aset <span class="muted">(pendapatan/beban lain)</span></label><select id="lpLR"><option value="">— pilih —</option>${opt(accs)}</select></div>
+      <div class="flex mt"><div class="spacer"></div><button class="btn abu" id="lpBatal">Batal</button><button class="btn hijau" id="lpSimpan">Proses Pelepasan</button></div>
+    </div></div>`;
+  document.body.appendChild(wrap);
+  const close=()=>wrap.remove();
+  wrap.querySelector('.x').onclick=close; wrap.querySelector('#lpBatal').onclick=close; wrap.onclick=(e)=>{if(e.target===wrap)close();};
+  wrap.querySelector('#lpSimpan').onclick=async()=>{
+    const g=id=>wrap.querySelector('#'+id).value;
+    const body={tanggal:g('lpTgl'),hargaJual:Number(g('lpHarga'))||0,akunKas:g('lpKas')||undefined,akunLabaRugi:g('lpLR')||undefined};
+    if(!body.tanggal){ wrap.querySelector('#lpMsg').innerHTML='<div class="pesan err">Isi tanggal pelepasan.</div>'; return; }
+    try{
+      const res=await api('POST',burl('/assets/'+a.id+'/dispose'),body);
+      const lr=res.labaRugi>=0?`Laba pelepasan Rp${fmtNum(res.labaRugi)}`:`Rugi pelepasan Rp${fmtNum(-res.labaRugi)}`;
+      alert(`Pelepasan selesai ✓\nNilai buku: Rp${fmtNum(res.nilaiBuku)}\n${lr}\nJurnal: ${res.jurnalNumber}${res.penyusutanDiposting?`\n(+${res.penyusutanDiposting} bulan penyusutan diposting lebih dulu)`:''}`);
+      close(); viewAsetTetap();
+    }catch(e){ wrap.querySelector('#lpMsg').innerHTML=`<div class="pesan err">${esc(e.message)}</div>`; }
+  };
 }
 function modalAset(a,meta){
   const isEdit=!!a; meta=meta||window._asetMeta||{fiskal:{},metode:{},akunAset:[],akunAkumulasi:[],akunBeban:[]};
