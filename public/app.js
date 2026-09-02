@@ -1084,8 +1084,11 @@ async function viewAsetTetap(){
     <div class="toolbar" style="flex-wrap:wrap;gap:8px">
       <div class="field"><label>Posisi s/d bulan</label><input type="month" id="asBulan" value="${sampai}"></div>
       <div class="spacer"></div>
+      <button class="btn abu" id="asPdf">🖨️ PDF</button>
+      <button class="btn abu" id="asCsv">⬇️ Ekspor CSV</button>
       <button class="btn abu" id="asKoreksi">📑 Koreksi Fiskal</button>
-      ${ro?'':`<button class="btn abu" id="asRun">▶️ Jalankan Penyusutan</button>
+      ${ro?'':`<button class="btn abu" id="asImpor">📥 Impor Excel/CSV</button>
+      <button class="btn abu" id="asRun">▶️ Jalankan Penyusutan</button>
       <button class="btn hijau" id="asAdd">+ Tambah Aset</button>`}
     </div>
     <div class="card"><div class="hd"><h3>Daftar Aset Tetap</h3><span class="muted">${(r.assets||[]).length} aset · nilai buku komersial per ${esc(sampai)}</span></div>
@@ -1095,9 +1098,12 @@ async function viewAsetTetap(){
     <p class="muted">Penyusutan <b>komersial</b> diposting otomatis ke jurnal (Beban Penyusutan / Akumulasi Penyusutan) saat Anda klik "Jalankan Penyusutan". Penyusutan <b>fiskal</b> (Pasal 11 UU PPh) dihitung berdampingan untuk <b>Koreksi Fiskal</b> — tidak diposting.</p>`;
   document.getElementById('asBulan').onchange=(e)=>{State.periode.bulan=e.target.value;viewAsetTetap();};
   document.getElementById('asKoreksi').onclick=()=>modalKoreksiFiskal(sampai.slice(0,4));
+  document.getElementById('asPdf').onclick=()=>cetakAsetTabel(r.assets||[],sampai);
+  document.getElementById('asCsv').onclick=()=>exportAsetCSV(r.assets||[]);
   content().querySelectorAll('[data-jadwal]').forEach(b=>b.onclick=()=>modalJadwalAset(b.dataset.jadwal));
   if(!ro){
     document.getElementById('asAdd').onclick=()=>modalAset(null,meta);
+    document.getElementById('asImpor').onclick=()=>modalImporAset();
     document.getElementById('asRun').onclick=()=>jalankanPenyusutan(sampai);
     content().querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{ const a=(r.assets||[]).find(x=>x.id===b.dataset.edit); modalAset(a,meta); });
     content().querySelectorAll('[data-lepas]').forEach(b=>b.onclick=()=>{ const a=(r.assets||[]).find(x=>x.id===b.dataset.lepas); modalLepasAset(a); });
@@ -1143,6 +1149,56 @@ function modalLepasAset(a){
       alert(`Pelepasan selesai ✓\nNilai buku: Rp${fmtNum(res.nilaiBuku)}\n${lr}\nJurnal: ${res.jurnalNumber}${res.penyusutanDiposting?`\n(+${res.penyusutanDiposting} bulan penyusutan diposting lebih dulu)`:''}`);
       close(); viewAsetTetap();
     }catch(e){ wrap.querySelector('#lpMsg').innerHTML=`<div class="pesan err">${esc(e.message)}</div>`; }
+  };
+}
+function downloadFile(name,content,mime){
+  const blob=new Blob(['﻿'+content],{type:(mime||'text/csv')+';charset=utf-8'});
+  const url=URL.createObjectURL(blob); const a=document.createElement('a');
+  a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+function csvCell(v){ v=String(v==null?'':v); return /[",;\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }
+function exportAsetCSV(list){
+  const head=['Nama','Tanggal Perolehan','Harga','Nilai Residu','Masa Manfaat (tahun)','Metode','Kelompok Fiskal','Akun Aset','Akun Akumulasi','Akun Beban','Akum Penyusutan','Nilai Buku','Status'];
+  const lines=[head.map(csvCell).join(',')];
+  (list||[]).forEach(a=>lines.push([a.nama,a.tanggalPerolehan,a.harga,a.nilaiResidu||0,a.masaManfaat||0,a.metode||'',a.kelompokFiskal||'',a.akunAset||'',a.akunAkumulasi||'',a.akunBeban||'',a.akumKomersial||0,a.dilepas?'':a.nilaiBukuKomersial,a.dilepas?('dilepas '+a.dilepas.tanggal):(a.aktif===false?'nonaktif':'aktif')].map(csvCell).join(',')));
+  downloadFile('aset-tetap.csv',lines.join('\n'));
+}
+function unduhTemplateAset(){
+  const head='Nama,Tanggal Perolehan,Harga,Nilai Residu,Masa Manfaat (tahun),Metode,Kelompok Fiskal,Akun Aset,Akun Akumulasi,Akun Beban';
+  const contoh='Laptop Kantor,2024-01-15,15000000,0,4,garis-lurus,I,1-2100,1-2200,6-3100';
+  downloadFile('template-aset.csv',head+'\n'+contoh);
+}
+function cetakAsetTabel(list,sampai){
+  const rows=(list||[]).map(a=>`<tr><td>${esc(a.nama)}${a.dilepas?' <i>(dilepas)</i>':''}</td><td>${esc(a.tanggalPerolehan)}</td><td class="num">${fmtNum(a.harga)}</td><td class="num">${fmtNum(a.akumKomersial)}</td><td class="num">${a.dilepas?'-':fmtNum(a.nilaiBukuKomersial)}</td><td>${esc(a.kelompokFiskal||'')}</td></tr>`).join('');
+  const w=window.open('','_blank'); if(!w){alert('Popup diblokir browser — izinkan popup untuk mencetak.');return;}
+  w.document.write(`<html><head><title>Daftar Aset Tetap</title><style>body{font-family:Arial,sans-serif;font-size:12px;padding:24px;color:#1a202c}table{width:100%;border-collapse:collapse}th,td{padding:6px 10px;border-bottom:1px solid #e2e8f0;text-align:left}.num{text-align:right}h2{text-align:center;margin:0 0 4px}p.sub{text-align:center;color:#666;margin:0 0 14px}</style></head><body><h2>Daftar Aset Tetap</h2><p class="sub">Posisi s/d ${esc(sampai||'')}</p><table><thead><tr><th>Aset</th><th>Tgl Perolehan</th><th class="num">Harga Perolehan</th><th class="num">Akum. Penyusutan</th><th class="num">Nilai Buku</th><th>Kelompok Fiskal</th></tr></thead><tbody>${rows}</tbody></table></body></html>`);
+  w.document.close(); setTimeout(()=>w.print(),300);
+}
+function modalImporAset(){
+  const wrap=document.createElement('div'); wrap.className='modal-bg';
+  wrap.innerHTML=`<div class="modal" style="max-width:540px"><div class="hd"><h3>📥 Impor Aset dari Excel / CSV</h3><button class="x">&times;</button></div>
+    <div class="bd"><div id="imMsg"></div>
+      <p class="muted" style="margin-top:0">Unggah <b>.xlsx</b> atau <b>.csv</b>. Baris pertama = header. Kolom <b>wajib</b>: Nama, Tanggal Perolehan (YYYY-MM-DD), Harga. <b>Opsional</b>: Nilai Residu, Masa Manfaat (tahun), Metode (garis-lurus/saldo-menurun), Kelompok Fiskal (I/II/III/IV/bangunan-permanen/…), Akun Aset, Akun Akumulasi, Akun Beban (kode akun). Akun yang tak dikenal dikosongkan (bisa dilengkapi belakangan).</p>
+      <p><a href="#" id="imTemplate">⬇️ Unduh template CSV</a></p>
+      <div class="field"><label>Berkas (.xlsx / .csv)</label><input type="file" id="imFile" accept=".xlsx,.csv,text/csv"></div>
+      <div class="flex mt"><div class="spacer"></div><button class="btn abu" id="imBatal">Batal</button><button class="btn hijau" id="imProses">Impor</button></div>
+    </div></div>`;
+  document.body.appendChild(wrap);
+  const close=()=>wrap.remove();
+  wrap.querySelector('.x').onclick=close; wrap.querySelector('#imBatal').onclick=close; wrap.onclick=(e)=>{if(e.target===wrap)close();};
+  wrap.querySelector('#imTemplate').onclick=(e)=>{ e.preventDefault(); unduhTemplateAset(); };
+  wrap.querySelector('#imProses').onclick=async()=>{
+    const f=wrap.querySelector('#imFile').files[0];
+    if(!f){ wrap.querySelector('#imMsg').innerHTML='<div class="pesan err">Pilih berkas dulu.</div>'; return; }
+    const btn=wrap.querySelector('#imProses'); btn.disabled=true; btn.textContent='Mengimpor…';
+    try{
+      const isX=/\.xlsx$/i.test(f.name);
+      const body=isX?{kind:'xlsx',base64:await readFile(f,true)}:{kind:'csv',text:await readFile(f,false)};
+      const res=await api('POST',burl('/assets/import'),body);
+      let m=`✓ ${res.dibuat} aset diimpor.`; if(res.gagal) m+=` ${res.gagal} baris dilewati.`;
+      if(res.errors&&res.errors.length) m+='\n\n'+res.errors.slice(0,20).join('\n');
+      alert(m); close(); viewAsetTetap();
+    }catch(e){ wrap.querySelector('#imMsg').innerHTML=`<div class="pesan err">${esc(e.message)}</div>`; btn.disabled=false; btn.textContent='Impor'; }
   };
 }
 function modalAset(a,meta){
