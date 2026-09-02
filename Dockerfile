@@ -4,6 +4,9 @@ WORKDIR /app
 COPY server.js ./
 COPY lib ./lib
 COPY public ./public
+# Cache-busting otomatis: stempel versi build ke referensi app.js & styles.css di index.html,
+# supaya tiap deploy browser mengambil versi terbaru tanpa perlu hard-refresh manual.
+RUN V=$(date +%s) && sed -i "s#/app.js#/app.js?v=$V#; s#/styles.css#/styles.css?v=$V#" public/index.html
 # TZ Asia/Jakarta WAJIB: tenggat SPT & tanggal jurnal dihitung waktu lokal
 ENV PORT=3000 WA_DATA_DIR=/data TZ=Asia/Jakarta NODE_ENV=production
 RUN apk add --no-cache tzdata && mkdir -p /data && chown node:node /data /app
