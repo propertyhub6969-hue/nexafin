@@ -1944,11 +1944,6 @@ async function viewKlien(){
 }
 function modalKlien(c,staff){
   const isEdit=!!c;
-  const isAdminRole=State.user.role==='admin'||State.user.role==='user';
-  const pengawasList=(staff||[]).filter(s=>s.role==='pengawas');
-  const staffList=(staff||[]).filter(s=>s.role==='staff');   // untuk pengawas, /api/staff sudah dibatasi ke timnya
-  const pembukuanSel=new Set((c&&Array.isArray(c.pembukuanBy))?c.pembukuanBy:[]);
-  const ownerNama=(pengawasList.find(p=>p.id===(c&&c.assignedTo))||(staff||[]).find(s=>s.id===(c&&c.assignedTo))||{}).name||'— belum ditunjuk —';
   const wrap=document.createElement('div'); wrap.className='modal-bg';
   wrap.innerHTML=`<div class="modal"><div class="hd"><h3>${isEdit?'Ubah Klien':'Tambah Klien'}</h3><button class="x">&times;</button></div>
     <div class="bd"><div id="kMsg"></div>
@@ -1957,27 +1952,16 @@ function modalKlien(c,staff){
         <div class="field" style="flex:1"><label>Jenis Usaha</label><select id="kUsaha">${jenisUsahaOpts(c?c.jenisUsaha:'')}</select></div></div>
       <div class="flex"><div class="field" style="flex:1"><label>Email</label><input id="kEmail" value="${c?esc(c.email||''):''}"></div>
         <div class="field" style="flex:1"><label>Telepon</label><input id="kTelp" value="${c?esc(c.telepon||''):''}"></div></div>
-      <div class="flex">
-        <div class="field" style="flex:1"><label>Pengawas Penanggung Jawab</label>
-          ${isAdminRole
-            ? `<select id="kPic"><option value="">— pilih pengawas —</option>${staffOpts(pengawasList,c?c.assignedTo:'')}</select>`
-            : `<input value="${esc(ownerNama)}" disabled title="Hanya admin yang menyerahkan klien ke pengawas">`}</div>
-        <div class="field" style="flex:1"><label>Status</label><select id="kStatus"><option value="aktif" ${c&&c.status==='aktif'?'selected':''}>Aktif</option><option value="nonaktif" ${c&&c.status==='nonaktif'?'selected':''}>Nonaktif</option></select></div></div>
-      <div class="field"><label>Staf Pembukuan <span class="muted">(boleh beberapa — hanya mereka & pengawas penanggung jawab yang dapat mengubah buku; staf perpajakan cukup ditugaskan lewat menu Pekerjaan/SPT)</span></label>
-        <div id="kPembukuan" style="display:flex;flex-wrap:wrap;gap:8px 14px;padding:8px 10px;border:1px solid var(--garis);border-radius:8px">
-          ${staffList.length?staffList.map(s=>`<label style="font-size:13px;display:flex;align-items:center;gap:5px"><input type="checkbox" value="${s.id}" ${pembukuanSel.has(s.id)?'checked':''}> ${esc(s.name)}</label>`).join(''):'<span class="muted" style="font-size:12.5px">Belum ada staf pembukuan. Tambah anggota (peran Staff) di menu Tim / Staff.</span>'}
-        </div></div>
+      <div class="field"><label>Status</label><select id="kStatus"><option value="aktif" ${c&&c.status==='aktif'?'selected':''}>Aktif</option><option value="nonaktif" ${c&&c.status==='nonaktif'?'selected':''}>Nonaktif</option></select></div>
+      <p class="muted" style="font-size:12.5px;margin:6px 0 0">💡 Penanggung jawab & pelaksana (pembukuan/pajak) diatur di menu <b>🧩 Penugasan</b>.</p>
       <div class="flex mt"><div class="spacer"></div><button class="btn abu" id="kBatal">Batal</button><button class="btn hijau" id="kSimpan">Simpan</button></div>
     </div></div>`;
   document.body.appendChild(wrap);
   const close=()=>wrap.remove();
   wrap.querySelector('.x').onclick=close; wrap.querySelector('#kBatal').onclick=close; wrap.onclick=(e)=>{if(e.target===wrap)close();};
   wrap.querySelector('#kSimpan').onclick=async()=>{
-    const pic=wrap.querySelector('#kPic');
-    const pembukuanBy=[...wrap.querySelectorAll('#kPembukuan input:checked')].map(x=>x.value);
     const body={nama:wrap.querySelector('#kNama').value,npwp:wrap.querySelector('#kNpwp').value,jenisUsaha:wrap.querySelector('#kUsaha').value,
-      email:wrap.querySelector('#kEmail').value,telepon:wrap.querySelector('#kTelp').value,status:wrap.querySelector('#kStatus').value,pembukuanBy};
-    if(pic) body.assignedTo=pic.value||null;   // hanya admin yang menyerahkan klien ke pengawas
+      email:wrap.querySelector('#kEmail').value,telepon:wrap.querySelector('#kTelp').value,status:wrap.querySelector('#kStatus').value};
     try{ if(isEdit) await api('PUT','/api/clients/'+c.id,body); else await api('POST','/api/clients',body); close(); viewKlien(); }
     catch(e){ wrap.querySelector('#kMsg').innerHTML=`<div class="pesan err">${esc(e.message)}</div>`; }
   };
@@ -1990,8 +1974,9 @@ async function viewPenugasan(){
   const clients=(cl.clients||[]).slice().sort((a,b)=>(a.nama||'').localeCompare(b.nama||''));
   const staff=rs.staff||[];
   const tasks=tk.tasks||[];
-  const pengawasList=staff.filter(s=>s.role==='pengawas');
-  const staffList=staff.filter(s=>s.role==='staff');
+  const memberList=staff.filter(s=>s.role==='staff'||s.role==='pengawas');   // PJ & pelaksana boleh siapa saja (anggota firma)
+  const staffList=memberList;
+  const pengawasList=memberList;
   const sptByClient={}; tasks.forEach(t=>{ (sptByClient[t.clientId]=sptByClient[t.clientId]||new Set()).add(t.assigneeName||''); });
   // Sel pelaksana ringkas: chip terpilih (bisa dihapus) + dropdown "+ tambah" (hanya yang belum dipilih).
   const rosterCell=(kind,cid,sel)=>{
