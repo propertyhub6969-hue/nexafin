@@ -1998,7 +1998,10 @@ async function viewPenugasan(){
     if(!staffList.length) return '<span class="muted" style="font-size:12px">belum ada staf — tambah di Tim/Staff</span>';
     const chips=staffList.filter(s=>sel.has(s.id)).map(s=>`<span class="chip" style="font-size:11px;margin:1px 3px 1px 0;display:inline-flex;align-items:center;gap:4px">${esc(s.name)}<a href="#" class="rm-pel" data-kind="${kind}" data-cid="${cid}" data-uid="${s.id}" title="hapus" style="text-decoration:none;color:var(--merah);font-weight:700">×</a></span>`).join('');
     const unsel=staffList.filter(s=>!sel.has(s.id));
-    const add=unsel.length?`<select class="add-pel" data-kind="${kind}" data-cid="${cid}" style="font-size:12px;max-width:150px;margin-top:2px"><option value="">+ tambah…</option>${unsel.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select>`:'';
+    const add=unsel.length?`<div class="pel-search" data-kind="${kind}" data-cid="${cid}" style="position:relative;display:inline-block;margin-top:2px">
+      <input class="pel-inp" placeholder="+ cari nama…" autocomplete="off" style="font-size:12px;width:140px;padding:3px 7px;border:1px solid var(--garis);border-radius:6px">
+      <div class="pel-drop" hidden style="position:absolute;left:0;top:100%;z-index:50;background:#fff;border:1px solid var(--garis);border-radius:6px;max-height:180px;overflow:auto;min-width:150px;box-shadow:0 4px 14px rgba(0,0,0,.14)"></div>
+    </div>`:'';
     return `<div>${chips||'<span class="muted" style="font-size:11px">— belum ada —</span>'} ${add}</div>`;
   };
   const rows=clients.map(c=>{
@@ -2027,8 +2030,27 @@ async function viewPenugasan(){
   // Tambah/hapus pelaksana (pembukuan/pajak) → hitung ulang daftar dari data klien, simpan, render ulang.
   const curIds=(cid,kind)=>{ const c=clients.find(x=>x.id===cid); return new Set(Array.isArray(c&&c[kind])?c[kind]:[]); };
   const savePel=async(cid,kind,set)=>{ try{ await api('PUT','/api/clients/'+cid,{[kind]:[...set]}); flash('✓ tersimpan'); viewPenugasan(); }catch(e){ alert(e.message); viewPenugasan(); } };
-  content().querySelectorAll('.add-pel').forEach(sel=>sel.onchange=()=>{ if(!sel.value)return; const set=curIds(sel.dataset.cid,sel.dataset.kind); set.add(sel.value); savePel(sel.dataset.cid,sel.dataset.kind,set); });
   content().querySelectorAll('.rm-pel').forEach(a=>a.onclick=(e)=>{ e.preventDefault(); const set=curIds(a.dataset.cid,a.dataset.kind); set.delete(a.dataset.uid); savePel(a.dataset.cid,a.dataset.kind,set); });
+  // Pencarian nama pelaksana: ketik → filter → klik untuk tambah
+  content().querySelectorAll('.pel-search').forEach(box=>{
+    const inp=box.querySelector('.pel-inp'), drop=box.querySelector('.pel-drop');
+    const kind=box.dataset.kind, cid=box.dataset.cid;
+    const render=()=>{
+      const q=inp.value.trim().toLowerCase();
+      const set=curIds(cid,kind);
+      const opts=staffList.filter(s=>!set.has(s.id) && (s.name||'').toLowerCase().includes(q));
+      drop.innerHTML=opts.length
+        ? opts.map(s=>`<div class="pel-opt" data-uid="${s.id}" style="padding:5px 9px;cursor:pointer;font-size:12px">${esc(s.name)}</div>`).join('')
+        : '<div style="padding:5px 9px;font-size:12px;color:var(--teks2)">tidak ada</div>';
+      drop.hidden=false;
+      drop.querySelectorAll('.pel-opt').forEach(o=>{
+        o.onmouseenter=()=>o.style.background='var(--garis2)'; o.onmouseleave=()=>o.style.background='';
+        o.onmousedown=(e)=>{ e.preventDefault(); const st=curIds(cid,kind); st.add(o.dataset.uid); savePel(cid,kind,st); };
+      });
+    };
+    inp.onfocus=render; inp.oninput=render;
+    inp.onblur=()=>setTimeout(()=>{ drop.hidden=true; },150);
+  });
   content().querySelectorAll('[data-spt]').forEach(b=>b.onclick=()=>{ State.view='pekerjaan'; renderApp(); });
 }
 
