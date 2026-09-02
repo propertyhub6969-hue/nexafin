@@ -1397,14 +1397,27 @@ function parseLiburText(text){
 async function viewLibur(){
   const r=await api('GET','/api/consult/holidays');
   const holidays=(r.holidays||[]).slice().sort((a,b)=>a.date.localeCompare(b.date));
+  const holMap={}; holidays.forEach(h=>holMap[h.date]=h);
   const rows=holidays.map(h=>`<tr>
       <td>${esc(h.date)}</td><td>${esc(h.nama)}</td>
       <td>${h.custom?'<span class="chip aset">Ditambahkan</span>':'<span class="chip">Tetap</span>'}</td>
       <td class="right">${h.custom?`<button class="btn abu kecil" data-holdel="${h.date}">Hapus</button>`:''}</td></tr>`).join('')||'<tr><td colspan="4" class="muted" style="text-align:center;padding:12px">Belum ada.</td></tr>';
-  content().innerHTML=`
+  const CALCSS=`<style>
+    .lb-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+    .lb-head{text-align:center;font-size:11px;font-weight:600;color:var(--teks2);padding:3px 0}
+    .lb-head.sun{color:#c0392b}
+    .lb-cell{position:relative;text-align:center;padding:8px 0;font-size:12.5px;border-radius:6px;cursor:pointer;border:1px solid transparent}
+    .lb-cell.empty{cursor:default}
+    .lb-cell:not(.empty):hover{background:var(--garis2)}
+    .lb-cell.sun{color:#c0392b}
+    .lb-cell.hol{background:#fde8e8;color:#c0392b;font-weight:700}
+    .lb-cell.today{border-color:var(--aksen)}
+    .lb-dot{position:absolute;bottom:3px;left:50%;transform:translateX(-50%);width:5px;height:5px;border-radius:50%;background:#c0392b}
+  </style>`;
+  content().innerHTML=`${CALCSS}
     <div class="card"><div class="hd"><h3>📅 Kelola Kalender Libur (Global)</h3><span class="muted">${holidays.length} tanggal</span></div>
     <div class="bd">
-      <p class="muted" style="margin-top:0">Kalender ini <b>berlaku untuk SEMUA pengguna</b> — cukup Anda (pemilik) yang kelola, tak perlu tiap firma. Tenggat <b>SPT Masa</b> yang jatuh di Sabtu/Minggu/libur otomatis mundur ke hari kerja berikutnya. Libur tanggal-tetap (1 Jan, 1 Mei, 1 Jun, 17 Agu, 25 Des) sudah termasuk otomatis.</p>
+      <p class="muted" style="margin-top:0">Kalender ini <b>berlaku untuk SEMUA pengguna</b> — cukup Anda (pemilik) yang kelola. Tenggat <b>SPT Masa</b> yang jatuh di Sabtu/Minggu/libur otomatis mundur ke hari kerja berikutnya. Libur tanggal-tetap (1 Jan, 1 Mei, 1 Jun, 17 Agu, 25 Des) sudah termasuk otomatis.</p>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
         <div class="card"><div class="hd"><h3>⚡ Impor Cepat</h3></div><div class="bd">
           <p class="muted" style="margin-top:0;font-size:12.5px">Data bawaan <b>SKB 3 Menteri 2026</b> (sumber: Setneg, diambil 2026-09-02). ⚠️ <b>Verifikasi ulang</b> ke SKB resmi — cuti bersama bisa direvisi pemerintah.</p>
@@ -1417,8 +1430,15 @@ async function viewLibur(){
           <div id="pasteMsg" style="margin-top:6px;font-size:12.5px"></div>
         </div></div>
       </div>
-      <div class="tbl-wrap" style="margin-top:14px"><table class="tbl">
-        <thead><tr><th>Tanggal</th><th>Nama</th><th>Jenis</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:14px">
+        <div class="card" style="flex:0 0 320px"><div class="hd"><h3>🗓️ Kalender</h3></div><div class="bd">
+          <div id="calBox"></div>
+          <p class="muted" style="font-size:11px;margin:8px 0 0">🔴 libur/cuti bersama. Klik tanggal kosong untuk <b>menambah</b>; klik tanggal merah "ditambahkan" untuk <b>menghapus</b>.</p>
+        </div></div>
+        <div class="card" style="flex:1;min-width:280px"><div class="hd"><h3>Daftar Libur</h3><span class="muted">${holidays.length} tanggal</span></div>
+          <div class="bd nopad"><div class="tbl-wrap"><table class="tbl">
+            <thead><tr><th>Tanggal</th><th>Nama</th><th>Jenis</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div></div>
+      </div>
     </div></div>`;
   document.getElementById('loadBawaan').onclick=async()=>{
     try{
@@ -1435,6 +1455,51 @@ async function viewLibur(){
     catch(e){ alert(e.message); }
   };
   content().querySelectorAll('[data-holdel]').forEach(b=>b.onclick=async()=>{ if(!confirm('Hapus libur ini?'))return; try{ await api('DELETE','/api/consult/holidays/'+b.dataset.holdel); viewLibur(); }catch(e){alert(e.message);} });
+  // ---- Kalender ----
+  const BULAN=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+  const DOW=['Min','Sen','Sel','Rab','Kam','Jum','Sab'];
+  let calY=(State.liburCal&&State.liburCal.y)||new Date().getFullYear();
+  let calM=(State.liburCal&&State.liburCal.m!=null)?State.liburCal.m:new Date().getMonth();
+  const pad2=n=>String(n).padStart(2,'0');
+  const calHTML=(y,m)=>{
+    const startDow=new Date(Date.UTC(y,m,1)).getUTCDay();
+    const dim=new Date(Date.UTC(y,m+1,0)).getUTCDate();
+    const todayStr=new Date().toISOString().slice(0,10);
+    let cells='';
+    for(let i=0;i<startDow;i++) cells+='<div class="lb-cell empty"></div>';
+    for(let d=1;d<=dim;d++){
+      const ds=y+'-'+pad2(m+1)+'-'+pad2(d);
+      const dow=new Date(Date.UTC(y,m,d)).getUTCDay();
+      const hol=holMap[ds];
+      const cls=['lb-cell']; if(hol)cls.push('hol'); else if(dow===0)cls.push('sun'); if(ds===todayStr)cls.push('today');
+      cells+=`<div class="${cls.join(' ')}" data-day="${ds}" title="${esc(hol?hol.nama:'')}">${d}${hol?'<span class="lb-dot"></span>':''}</div>`;
+    }
+    const head=DOW.map((n,i)=>`<div class="lb-head ${i===0?'sun':''}">${n}</div>`).join('');
+    return `<div class="flex" style="align-items:center;gap:6px;margin-bottom:8px">
+        <button class="btn abu kecil" id="calPrev">‹</button>
+        <b style="flex:1;text-align:center">${BULAN[m]} ${y}</b>
+        <button class="btn abu kecil" id="calNext">›</button></div>
+      <div class="lb-grid">${head}${cells}</div>`;
+  };
+  const onDay=async(ds)=>{
+    const hol=holMap[ds];
+    if(hol){
+      if(hol.custom){ if(confirm(`Hapus libur "${hol.nama}" (${ds})?`)){ try{ await api('DELETE','/api/consult/holidays/'+ds); viewLibur(); }catch(e){alert(e.message);} } }
+      else alert(`${ds}: ${hol.nama}\n(libur tetap — tidak bisa dihapus).`);
+      return;
+    }
+    const nama=prompt('Tambah libur untuk '+ds+'\nNama libur:');
+    if(nama&&nama.trim()){ try{ await api('POST','/api/consult/holidays',{date:ds,nama:nama.trim()}); viewLibur(); }catch(e){alert(e.message);} }
+  };
+  const drawCal=()=>{
+    State.liburCal={y:calY,m:calM};
+    const box=document.getElementById('calBox'); if(!box)return;
+    box.innerHTML=calHTML(calY,calM);
+    box.querySelector('#calPrev').onclick=()=>{ calM--; if(calM<0){calM=11;calY--;} drawCal(); };
+    box.querySelector('#calNext').onclick=()=>{ calM++; if(calM>11){calM=0;calY++;} drawCal(); };
+    box.querySelectorAll('.lb-cell[data-day]').forEach(c=>c.onclick=()=>onDay(c.dataset.day));
+  };
+  drawCal();
 }
 
 /* ============ PENGATURAN ============ */
