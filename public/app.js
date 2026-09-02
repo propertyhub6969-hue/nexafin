@@ -1993,9 +1993,14 @@ async function viewPenugasan(){
   const pengawasList=staff.filter(s=>s.role==='pengawas');
   const staffList=staff.filter(s=>s.role==='staff');
   const sptByClient={}; tasks.forEach(t=>{ (sptByClient[t.clientId]=sptByClient[t.clientId]||new Set()).add(t.assigneeName||''); });
-  const cbList=(cls,id,sel)=>staffList.length
-    ? `<div class="flex" style="flex-wrap:wrap;gap:4px 12px">${staffList.map(s=>`<label style="font-size:12px;display:flex;gap:4px;align-items:center"><input type="checkbox" class="${cls}" data-id="${id}" value="${s.id}" ${sel.has(s.id)?'checked':''}> ${esc(s.name)}</label>`).join('')}</div>`
-    : '<span class="muted" style="font-size:12px">belum ada staf — tambah di Tim/Staff</span>';
+  // Sel pelaksana ringkas: chip terpilih (bisa dihapus) + dropdown "+ tambah" (hanya yang belum dipilih).
+  const rosterCell=(kind,cid,sel)=>{
+    if(!staffList.length) return '<span class="muted" style="font-size:12px">belum ada staf — tambah di Tim/Staff</span>';
+    const chips=staffList.filter(s=>sel.has(s.id)).map(s=>`<span class="chip" style="font-size:11px;margin:1px 3px 1px 0;display:inline-flex;align-items:center;gap:4px">${esc(s.name)}<a href="#" class="rm-pel" data-kind="${kind}" data-cid="${cid}" data-uid="${s.id}" title="hapus" style="text-decoration:none;color:var(--merah);font-weight:700">×</a></span>`).join('');
+    const unsel=staffList.filter(s=>!sel.has(s.id));
+    const add=unsel.length?`<select class="add-pel" data-kind="${kind}" data-cid="${cid}" style="font-size:12px;max-width:150px;margin-top:2px"><option value="">+ tambah…</option>${unsel.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select>`:'';
+    return `<div>${chips||'<span class="muted" style="font-size:11px">— belum ada —</span>'} ${add}</div>`;
+  };
   const rows=clients.map(c=>{
     const pemb=new Set(Array.isArray(c.pembukuanBy)?c.pembukuanBy:[]);
     const perp=new Set(Array.isArray(c.perpajakanBy)?c.perpajakanBy:[]);
@@ -2004,9 +2009,9 @@ async function viewPenugasan(){
       ? `<select class="pn-pj" data-id="${c.id}"><option value="">— pilih PJ —</option>${pengawasList.map(p=>`<option value="${p.id}" ${c.assignedTo===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select>`
       : `<span>${esc(pjName||'—')}</span>`;
     const spt=[...(sptByClient[c.id]||[])].filter(Boolean);
-    const perpCell=`${cbList('pn-perp',c.id,perp)}${spt.length?`<div class="muted" style="font-size:11px;margin-top:3px">tugas SPT aktif: ${spt.map(esc).join(', ')}</div>`:''}<div style="margin-top:3px"><button class="btn abu kecil" data-spt="${c.id}">Atur tugas SPT ›</button></div>`;
+    const perpCell=`${rosterCell('perpajakanBy',c.id,perp)}${spt.length?`<div class="muted" style="font-size:11px;margin-top:3px">tugas SPT aktif: ${spt.map(esc).join(', ')}</div>`:''}<div style="margin-top:3px"><button class="btn abu kecil" data-spt="${c.id}">Atur tugas SPT ›</button></div>`;
     return `<tr><td><b>${esc(c.nama)}</b>${c.status==='nonaktif'?' <span class="chip buruk">nonaktif</span>':''}</td>
-      <td>${pengawasCell}</td><td>${cbList('pn-pemb',c.id,pemb)}</td><td>${perpCell}</td></tr>`;
+      <td>${pengawasCell}</td><td>${rosterCell('pembukuanBy',c.id,pemb)}</td><td>${perpCell}</td></tr>`;
   }).join('')||'<tr><td colspan="4" class="muted" style="text-align:center;padding:16px">Belum ada klien. Tambah di menu Klien.</td></tr>';
   content().innerHTML=`
     <div class="card"><div class="hd"><h3>🧩 Penugasan Klien</h3><span class="muted" id="pnMsg">${clients.length} klien</span></div>
@@ -2019,16 +2024,11 @@ async function viewPenugasan(){
     </div></div>`;
   const flash=(t)=>{ const el=document.getElementById('pnMsg'); if(el){ const o=el.textContent; el.textContent=t; el.style.color='var(--aksen)'; setTimeout(()=>{el.textContent=o;el.style.color='';},1500); } };
   content().querySelectorAll('.pn-pj').forEach(sel=>sel.onchange=async()=>{ try{ await api('PUT','/api/clients/'+sel.dataset.id,{assignedTo:sel.value||null}); flash('✓ pengawas disimpan'); }catch(e){ alert(e.message); viewPenugasan(); } });
-  content().querySelectorAll('.pn-pemb').forEach(cb=>cb.onchange=async()=>{
-    const id=cb.dataset.id;
-    const ids=[...content().querySelectorAll('.pn-pemb[data-id="'+id+'"]:checked')].map(x=>x.value);
-    try{ await api('PUT','/api/clients/'+id,{pembukuanBy:ids}); flash('✓ pembukuan disimpan'); }catch(e){ alert(e.message); viewPenugasan(); }
-  });
-  content().querySelectorAll('.pn-perp').forEach(cb=>cb.onchange=async()=>{
-    const id=cb.dataset.id;
-    const ids=[...content().querySelectorAll('.pn-perp[data-id="'+id+'"]:checked')].map(x=>x.value);
-    try{ await api('PUT','/api/clients/'+id,{perpajakanBy:ids}); flash('✓ pelaksana pajak disimpan'); }catch(e){ alert(e.message); viewPenugasan(); }
-  });
+  // Tambah/hapus pelaksana (pembukuan/pajak) → hitung ulang daftar dari data klien, simpan, render ulang.
+  const curIds=(cid,kind)=>{ const c=clients.find(x=>x.id===cid); return new Set(Array.isArray(c&&c[kind])?c[kind]:[]); };
+  const savePel=async(cid,kind,set)=>{ try{ await api('PUT','/api/clients/'+cid,{[kind]:[...set]}); flash('✓ tersimpan'); viewPenugasan(); }catch(e){ alert(e.message); viewPenugasan(); } };
+  content().querySelectorAll('.add-pel').forEach(sel=>sel.onchange=()=>{ if(!sel.value)return; const set=curIds(sel.dataset.cid,sel.dataset.kind); set.add(sel.value); savePel(sel.dataset.cid,sel.dataset.kind,set); });
+  content().querySelectorAll('.rm-pel').forEach(a=>a.onclick=(e)=>{ e.preventDefault(); const set=curIds(a.dataset.cid,a.dataset.kind); set.delete(a.dataset.uid); savePel(a.dataset.cid,a.dataset.kind,set); });
   content().querySelectorAll('[data-spt]').forEach(b=>b.onclick=()=>{ State.view='pekerjaan'; renderApp(); });
 }
 
