@@ -252,7 +252,7 @@ function renderApp(){
     const isAdminRole=u.role==='admin'||u.role==='user';
     const canInv=isAdminRole||(u.perms&&u.perms.invoice);
     if(canInv) menu.push({v:'invoice',t:'Invoice Klien',e:'🧾'});
-    if(isAdminRole) menu.push({v:'tim',t:'Tim / Staff',e:'👥'});
+    if(isAdminRole||(State.meta&&State.meta.isPJ)) menu.push({v:'tim',t:'Tim / Staff',e:'👥'});
     if(isAdmin){ menu.push({grp:'Pengaturan Lanjut'}); menu.push({v:'admin',t:'Kelola Pengguna',e:'👤'}); menu.push({v:'setelanai',t:'Setelan AI',e:'🤖'}); }
     menu.push({v:'pengaturan',t:'Profil & Perusahaan',e:'⚙️'});
   }
@@ -2300,6 +2300,7 @@ async function viewTim(){
   const [r,cl,tk]=await Promise.all([api('GET','/api/staff'),api('GET','/api/clients'),api('GET','/api/tasks').catch(()=>({tasks:[]}))]);
   const clients=cl.clients||[];
   const tasks=tk.tasks||[];
+  const isAdminRole=State.user.role==='admin'||State.user.role==='user';   // PJ non-admin juga bisa buka menu ini (kelola akun rosternya)
   const pengawasList=r.staff.filter(s=>s.role==='pengawas');
   const peranBadge=(role)=>role==='pengawas'?'<span class="badge admin">Pengawas</span>':role==='staff'?'<span class="badge">Staff</span>':role==='klien-staff'?'<span class="badge" style="background:#0a8a61">Staf Klien</span>':'<span class="badge admin">Konsultan/Admin</span>';
   // Kolom "Menangani": klien yang dipegang tiap anggota + perannya (pembukuan/SPT/pengawas)
@@ -2324,15 +2325,19 @@ async function viewTim(){
     const anggota=(s.role==='staff'||s.role==='pengawas'); const self=s.id===State.user.id;
     const ks=s.role==='klien-staff';
     const inv=s.perms&&s.perms.invoice;
-    const supCell=s.role==='staff'
+    // Kontrol admin-only: dropdown pengawas, ubah peran, izin invoice, hapus. PJ hanya reset password/edit.
+    const supCell=(isAdminRole&&s.role==='staff')
       ? `<select class="tm-sup" data-id="${s.id}" style="min-width:150px"><option value="">— tanpa pengawas —</option>${pengawasList.map(p=>`<option value="${p.id}" ${s.supervisorId===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select>`
-      : (ks?`<span class="muted">buku: ${esc(s.clientName||'—')}</span>`:'<span class="muted">—</span>');
-    const roleCell=anggota&&!self?`${peranBadge(s.role)} <button class="btn abu kecil" data-role="${s.id}" data-to="${s.role==='pengawas'?'staff':'pengawas'}">${s.role==='pengawas'?'→ Staf':'→ Pengawas'}</button>`:peranBadge(s.role);
-    const invCell=anggota?`<button class="btn ${inv?'hijau':'abu'} kecil" data-inv="${s.id}" data-on="${inv?1:0}">${inv?'✓':'beri'}</button>`:(ks?'<span class="muted">—</span>':'<span class="chip baik">Penuh</span>');
+      : (ks?`<span class="muted">buku: ${esc(s.clientName||'—')}</span>`:(s.supervisorName?`<span class="muted">${esc(s.supervisorName)}</span>`:'<span class="muted">—</span>'));
+    const roleCell=(isAdminRole&&anggota&&!self)?`${peranBadge(s.role)} <button class="btn abu kecil" data-role="${s.id}" data-to="${s.role==='pengawas'?'staff':'pengawas'}">${s.role==='pengawas'?'→ Staf':'→ Pengawas'}</button>`:peranBadge(s.role);
+    const invCell=!anggota?(ks?'<span class="muted">—</span>':'<span class="chip baik">Penuh</span>')
+      :(isAdminRole?`<button class="btn ${inv?'hijau':'abu'} kecil" data-inv="${s.id}" data-on="${inv?1:0}">${inv?'✓':'beri'}</button>`:(inv?'<span class="chip baik">✓</span>':'<span class="muted">—</span>'));
+    const kelolaBtn=self?'':`<button class="btn abu kecil" data-kelola="${s.id}" title="Reset kata sandi / ubah nama & email">🔑 Kelola</button>`;
+    const delBtn=(isAdminRole&&!self&&(anggota||ks))?` <button class="btn abu kecil" data-del="${s.id}">Hapus</button>`:'';
     return `<tr><td><b>${esc(s.name)}</b></td><td>${esc(s.email)}</td><td>${roleCell}</td><td>${supCell}</td>
       <td style="max-width:280px;white-space:normal">${menanganiCell(s)}</td>
       <td>${invCell}</td>
-      <td class="right">${self||!(anggota||ks)?'':`<button class="btn abu kecil" data-del="${s.id}">Hapus</button>`}</td></tr>`;
+      <td class="right">${kelolaBtn}${delBtn}</td></tr>`;
   }).join('');
   content().innerHTML=`
     <div class="toolbar"><div class="spacer"></div><button class="btn hijau" id="addStaff">+ Tambah Anggota</button></div>
@@ -2340,37 +2345,60 @@ async function viewTim(){
     <div class="bd nopad"><div class="tbl-wrap"><table class="tbl">
       <thead><tr><th>Nama</th><th>Email</th><th>Peran</th><th>Pengawas</th><th>Menangani (Klien)</th><th>Akses Invoice</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div></div>
     <p class="muted">• <b>Menangani</b>: <span class="chip" style="font-size:11px">👤 pengawas penanggung jawab</span> <span class="chip" style="font-size:11px">📒 staf pembukuan</span> <span class="chip" style="font-size:11px">🧾 staf perpajakan (SPT)</span> <span class="chip" style="font-size:11px">🏢 buku perusahaannya (staf klien)</span>. Atur penugasan di menu <b>Klien</b> (Pengawas & Staf Pembukuan) dan <b>Pekerjaan/SPT</b> (perpajakan).<br>• <b>Staff</b>: hanya tugas + buku klien yang ditugaskan kepadanya.<br>• <b>Pengawas</b>: memantau, menugaskan & mengelola tugas hanya untuk <b>timnya</b>, tanpa akses dashboard finansial.<br>• <b>Akses Invoice</b>: izinkan anggota melihat/mengelola invoice.</p>`;
-  document.getElementById('addStaff').onclick=()=>modalStaff(pengawasList,clients);
+  document.getElementById('addStaff').onclick=()=>modalStaff(pengawasList,clients,isAdminRole);
   content().querySelectorAll('.tm-sup').forEach(sel=>sel.onchange=async()=>{ try{ await api('PUT','/api/staff/'+sel.dataset.id,{supervisorId:sel.value||null}); viewTim(); }catch(e){alert(e.message);} });
   content().querySelectorAll('[data-role]').forEach(b=>b.onclick=async()=>{ if(!confirm(`Ubah peran menjadi ${b.dataset.to}?`))return; try{ await api('PUT','/api/staff/'+b.dataset.role,{role:b.dataset.to}); viewTim(); }catch(e){alert(e.message);} });
   content().querySelectorAll('[data-inv]').forEach(b=>b.onclick=async()=>{ try{ await api('POST','/api/staff/'+b.dataset.inv+'/perms',{invoice:b.dataset.on!=='1'}); viewTim(); }catch(e){alert(e.message);} });
+  content().querySelectorAll('[data-kelola]').forEach(b=>b.onclick=()=>{ const m=r.staff.find(x=>x.id===b.dataset.kelola); if(m) modalKelolaAkun(m); });
   content().querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{ if(!confirm('Hapus anggota ini? Akun login-nya akan dihapus.'))return; try{await api('DELETE','/api/staff/'+b.dataset.del); viewTim();}catch(e){alert(e.message);} });
 }
-function modalStaff(pengawasList,clients){
-  pengawasList=pengawasList||[]; clients=clients||[];
+function modalStaff(pengawasList,clients,isAdmin){
+  pengawasList=pengawasList||[]; clients=clients||[]; isAdmin=isAdmin!==false;
+  // Non-admin (PJ): hanya boleh buat Staff firma / Staf klien (untuk klien yang dia pegang).
+  const klienOpt=(isAdmin?clients:clients.filter(c=>c.assignedTo===State.user.id));
   const wrap=document.createElement('div'); wrap.className='modal-bg';
   wrap.innerHTML=`<div class="modal" style="max-width:460px"><div class="hd"><h3>Tambah Anggota</h3><button class="x">&times;</button></div>
     <div class="bd"><div id="sMsg"></div>
       <div class="field"><label>Nama</label><input id="sNama"></div>
       <div class="field"><label>Email (untuk login)</label><input id="sEmail" type="email"></div>
       <div class="field"><label>Kata Sandi Awal (min. 6)</label><input id="sPass" type="text" placeholder="beritahukan ke anggota"></div>
-      <div class="field"><label>Peran</label><select id="sRole"><option value="staff">Staff firma</option><option value="pengawas">Pengawas</option><option value="klien-staff">Staf perusahaan klien</option></select></div>
-      <div class="field" id="sSupWrap"><label>Pengawas (untuk Staff)</label><select id="sSup"><option value="">— tanpa pengawas —</option>${pengawasList.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
-      <div class="field" id="sKlienWrap" style="display:none"><label>Klien yang ditangani (buku miliknya)</label><select id="sKlien"><option value="">— pilih klien —</option>${clients.map(c=>`<option value="${c.id}">${esc(c.nama)}</option>`).join('')}</select>
-        <div class="muted" style="font-size:12px;margin-top:4px">Staf ini hanya bisa membuka buku klien tersebut & jurnalnya berstatus draf sampai Anda setujui.</div></div>
+      <div class="field"><label>Peran</label><select id="sRole"><option value="staff">Staff firma</option>${isAdmin?'<option value="pengawas">Pengawas</option>':''}<option value="klien-staff">Staf perusahaan klien</option></select></div>
+      ${isAdmin?`<div class="field" id="sSupWrap"><label>Pengawas (untuk Staff)</label><select id="sSup"><option value="">— tanpa pengawas —</option>${pengawasList.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>`:''}
+      <div class="field" id="sKlienWrap" style="display:none"><label>Klien yang ditangani (buku miliknya)</label><select id="sKlien"><option value="">— pilih klien —</option>${klienOpt.map(c=>`<option value="${c.id}">${esc(c.nama)}</option>`).join('')}</select>
+        <div class="muted" style="font-size:12px;margin-top:4px">Staf ini hanya bisa membuka buku klien tersebut & jurnalnya berstatus draf sampai disetujui.</div></div>
       <div class="flex mt"><div class="spacer"></div><button class="btn abu" id="sBatal">Batal</button><button class="btn hijau" id="sSimpan">Buat Akun</button></div>
     </div></div>`;
   document.body.appendChild(wrap);
   const close=()=>wrap.remove();
   wrap.querySelector('.x').onclick=close; wrap.querySelector('#sBatal').onclick=close; wrap.onclick=(e)=>{if(e.target===wrap)close();};
-  wrap.querySelector('#sRole').onchange=(e)=>{ const v=e.target.value; wrap.querySelector('#sSupWrap').style.display=v==='staff'?'':'none'; wrap.querySelector('#sKlienWrap').style.display=v==='klien-staff'?'':'none'; };
+  wrap.querySelector('#sRole').onchange=(e)=>{ const v=e.target.value; const sw=wrap.querySelector('#sSupWrap'); if(sw)sw.style.display=v==='staff'?'':'none'; wrap.querySelector('#sKlienWrap').style.display=v==='klien-staff'?'':'none'; };
   wrap.querySelector('#sSimpan').onclick=async()=>{
     const role=wrap.querySelector('#sRole').value;
     const body={name:wrap.querySelector('#sNama').value,email:wrap.querySelector('#sEmail').value,password:wrap.querySelector('#sPass').value,role};
-    if(role==='staff') body.supervisorId=wrap.querySelector('#sSup').value||null;
+    const sup=wrap.querySelector('#sSup'); if(role==='staff'&&sup) body.supervisorId=sup.value||null;
     if(role==='klien-staff') body.clientId=wrap.querySelector('#sKlien').value||null;
     try{ await api('POST','/api/staff',body); close(); viewTim(); }
     catch(e){ wrap.querySelector('#sMsg').innerHTML=`<div class="pesan err">${esc(e.message)}</div>`; }
+  };
+}
+function modalKelolaAkun(m){
+  const wrap=document.createElement('div'); wrap.className='modal-bg';
+  wrap.innerHTML=`<div class="modal" style="max-width:440px"><div class="hd"><h3>Kelola Akun — ${esc(m.name)}</h3><button class="x">&times;</button></div>
+    <div class="bd"><div id="kaMsg"></div>
+      <div class="field"><label>Nama</label><input id="kaNama" value="${esc(m.name||'')}"></div>
+      <div class="field"><label>Email (untuk login)</label><input id="kaEmail" type="email" value="${esc(m.email||'')}"></div>
+      <div class="field"><label>Reset Kata Sandi <span class="muted">(kosongkan bila tidak diubah)</span></label><input id="kaPass" type="text" placeholder="kata sandi baru (min. 6), beritahukan ke anggota"></div>
+      <div class="flex mt"><div class="spacer"></div><button class="btn abu" id="kaBatal">Batal</button><button class="btn hijau" id="kaSimpan">Simpan</button></div>
+    </div></div>`;
+  document.body.appendChild(wrap);
+  const close=()=>wrap.remove();
+  wrap.querySelector('.x').onclick=close; wrap.querySelector('#kaBatal').onclick=close; wrap.onclick=(e)=>{if(e.target===wrap)close();};
+  wrap.querySelector('#kaSimpan').onclick=async()=>{
+    const body={name:wrap.querySelector('#kaNama').value,email:wrap.querySelector('#kaEmail').value};
+    const pass=wrap.querySelector('#kaPass').value;
+    if(pass){ if(pass.length<6){ wrap.querySelector('#kaMsg').innerHTML='<div class="pesan err">Kata sandi minimal 6 karakter.</div>'; return; } body.password=pass; }
+    try{ await api('PUT','/api/staff/'+m.id,body); close(); viewTim(); }
+    catch(e){ wrap.querySelector('#kaMsg').innerHTML=`<div class="pesan err">${esc(e.message)}</div>`; }
   };
 }
 
