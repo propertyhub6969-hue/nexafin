@@ -2617,7 +2617,9 @@ function modalStaff(clients,isAdmin){
       <div class="field"><label>Kata Sandi Awal (min. 6)</label><input id="sPass" type="text" placeholder="beritahukan ke anggota"></div>
       <div class="field"><label>Jenis Akun</label><select id="sRole"><option value="staff">Anggota firma</option><option value="klien-staff">Staf perusahaan klien</option></select></div>
       <div class="field" id="sKlienWrap" style="display:none"><label>Klien yang ditangani (buku miliknya)</label><select id="sKlien"><option value="">— pilih klien —</option>${klienOpt.map(c=>`<option value="${c.id}">${esc(c.nama)}</option>`).join('')}</select>
-        <div class="muted" style="font-size:12px;margin-top:4px">Staf ini hanya bisa membuka buku klien tersebut & jurnalnya berstatus draf sampai disetujui.</div></div>
+        <div class="muted" style="font-size:12px;margin-top:4px">Staf ini hanya bisa membuka buku klien tersebut.</div>
+        <label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:13px"><input type="checkbox" id="sAuto"> Jurnal <b>langsung disetujui</b> <span class="muted">(tanpa perlu persetujuan konsultan)</span></label>
+        <div class="muted" style="font-size:11.5px;margin-top:2px">Default: jurnalnya <b>draf</b> dulu sampai konsultan menyetujui (lebih aman). Centang bila staf ini dipercaya posting langsung.</div></div>
       <p class="muted" style="font-size:12px;margin:6px 0 0">💡 Peran (penanggung jawab / pelaksana) diatur per-klien di menu <b>🧩 Penugasan</b> setelah akun dibuat.</p>
       <div class="flex mt"><div class="spacer"></div><button class="btn abu" id="sBatal">Batal</button><button class="btn hijau" id="sSimpan">Buat Akun</button></div>
     </div></div>`;
@@ -2629,7 +2631,7 @@ function modalStaff(clients,isAdmin){
     const role=wrap.querySelector('#sRole').value;
     const body={name:wrap.querySelector('#sNama').value,email:wrap.querySelector('#sEmail').value,password:wrap.querySelector('#sPass').value,role};
     const sup=wrap.querySelector('#sSup'); if(role==='staff'&&sup) body.supervisorId=sup.value||null;
-    if(role==='klien-staff') body.clientId=wrap.querySelector('#sKlien').value||null;
+    if(role==='klien-staff'){ body.clientId=wrap.querySelector('#sKlien').value||null; body.autoApprove=wrap.querySelector('#sAuto').checked; }
     try{ await api('POST','/api/staff',body); close(); viewTim(); }
     catch(e){ wrap.querySelector('#sMsg').innerHTML=`<div class="pesan err">${esc(e.message)}</div>`; }
   };
@@ -2641,6 +2643,7 @@ function modalKelolaAkun(m){
       <div class="field"><label>Nama</label><input id="kaNama" value="${esc(m.name||'')}"></div>
       <div class="field"><label>Email (untuk login)</label><input id="kaEmail" type="email" value="${esc(m.email||'')}"></div>
       <div class="field"><label>Reset Kata Sandi <span class="muted">(kosongkan bila tidak diubah)</span></label><input id="kaPass" type="text" placeholder="kata sandi baru (min. 6), beritahukan ke anggota"></div>
+      ${m.role==='klien-staff'?`<label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-top:4px"><input type="checkbox" id="kaAuto" ${m.autoApprove?'checked':''}> Jurnal <b>langsung disetujui</b> <span class="muted">(tanpa persetujuan konsultan)</span></label>`:''}
       <div class="flex mt"><div class="spacer"></div><button class="btn abu" id="kaBatal">Batal</button><button class="btn hijau" id="kaSimpan">Simpan</button></div>
     </div></div>`;
   document.body.appendChild(wrap);
@@ -2650,6 +2653,7 @@ function modalKelolaAkun(m){
     const body={name:wrap.querySelector('#kaNama').value,email:wrap.querySelector('#kaEmail').value};
     const pass=wrap.querySelector('#kaPass').value;
     if(pass){ if(pass.length<6){ wrap.querySelector('#kaMsg').innerHTML='<div class="pesan err">Kata sandi minimal 6 karakter.</div>'; return; } body.password=pass; }
+    const auto=wrap.querySelector('#kaAuto'); if(auto) body.autoApprove=auto.checked;
     try{ await api('PUT','/api/staff/'+m.id,body); close(); viewTim(); }
     catch(e){ wrap.querySelector('#kaMsg').innerHTML=`<div class="pesan err">${esc(e.message)}</div>`; }
   };
