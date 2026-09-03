@@ -183,6 +183,7 @@ async function loadAccounts(){
 const MENU=[
   {grp:'Utama'},
   {v:'dashboard',t:'Dashboard',e:'📊'},
+  {v:'transaksi',t:'Input Transaksi',e:'💳'},
   {v:'jurnal',t:'Jurnal Umum',e:'📝'},
   {v:'bukubesar',t:'Buku Besar',e:'📚'},
   {v:'neracasaldo',t:'Neraca Saldo',e:'⚖️'},
@@ -205,7 +206,7 @@ const MENU=[
   {v:'akun',t:'Bagan Akun',e:'🗂️'},
 ];
 // View akuntansi yang terikat pada satu buku (klien/firma)
-const BOOK_VIEWS=new Set(['dashboard','jurnal','bukubesar','neracasaldo','labarugi','neraca','ekuitas','aruskas','calk','impor','insight','suratdjp','anggaran','varians','rekonsiliasi','aset','akun']);
+const BOOK_VIEWS=new Set(['dashboard','transaksi','jurnal','bukubesar','neracasaldo','labarugi','neraca','ekuitas','aruskas','calk','impor','insight','suratdjp','anggaran','varians','rekonsiliasi','aset','akun']);
 function bookSwitcherHTML(){
   if(!BOOK_VIEWS.has(State.view)) return '';
   if(!State.books||State.books.length<2) return '';   // sembunyikan bila hanya satu buku (mis. staf klien)
@@ -227,6 +228,7 @@ function renderApp(){
     menu=[
       {grp:'Pembukuan'},
       {v:'dashboard',t:'Dashboard',e:'📊'},
+      {v:'transaksi',t:'Input Transaksi',e:'💳'},
       {v:'jurnal',t:'Jurnal Umum',e:'📝'},
       {v:'bukubesar',t:'Buku Besar',e:'📚'},
       {v:'neracasaldo',t:'Neraca Saldo',e:'⚖️'},
@@ -329,7 +331,7 @@ async function routeView(){
     const map={dashboard:viewDashboard,jurnal:viewJurnal,bukubesar:viewBukuBesar,neracasaldo:viewNeracaSaldo,
       labarugi:viewLabaRugi,neraca:viewNeraca,ekuitas:viewPerubahanEkuitas,aruskas:viewArusKas,calk:viewCALK,anggaran:viewAnggaran,varians:viewVarians,
       rekonsiliasi:viewRekonsiliasi,aset:viewAsetTetap,akun:viewAkun,admin:viewAdmin,pengaturan:viewPengaturan,
-      impor:viewImpor,insight:viewInsight,suratdjp:viewSuratDJP,setelanai:viewSetelanAI,libur:viewLibur,
+      impor:viewImpor,insight:viewInsight,suratdjp:viewSuratDJP,transaksi:viewTransaksi,setelanai:viewSetelanAI,libur:viewLibur,
       konsultan:viewKonsultan,klien:viewKlien,penugasan:viewPenugasan,pekerjaan:viewPekerjaan,invoice:viewInvoiceKlien,arsip:viewArsip,tim:viewTim,pengingat:viewPengingat,kotakmasuk:viewKotakMasuk};
     const fn=map[State.view]||viewDashboard;
     await fn();
@@ -1915,6 +1917,105 @@ async function viewInsight(){
       document.getElementById('insHasil').innerHTML=`<div class="card"><div class="hd"><h3>Analisis AI — ${namaBulan(State.periode.bulan)}</h3></div><div class="bd">${mdToHtml(r.text)}</div></div>`;
     }catch(e){ document.getElementById('insHasil').innerHTML=`<div class="pesan err">${esc(e.message)}</div>`; }
     finally{ btn.disabled=false; btn.textContent='💡 Buat Insight AI'; }
+  };
+}
+
+/* ============ INPUT TRANSAKSI (form → jurnal otomatis) ============ */
+async function viewTransaksi(){
+  await loadAccounts();
+  const ro=bookRO();
+  const btn=(tx,emo,judul,ket,cls)=>`<button class="btn ${cls}" data-tx="${tx}" style="flex:1;min-width:220px;padding:16px;text-align:left;line-height:1.35">${emo} <b>${judul}</b><br><span class="muted" style="font-size:12px">${ket}</span></button>`;
+  content().innerHTML=`
+    ${bookBanner()}
+    <div class="card"><div class="hd"><h3>💳 Input Transaksi</h3></div><div class="bd">
+      <p class="muted" style="margin-top:0">Catat transaksi pakai bahasa sehari-hari — app otomatis membuat <b>jurnalnya</b> (termasuk PPN & akun lawan). ${ro?'<b>Mode lihat</b> — tidak bisa input.':''}</p>
+      ${ro?'':`<div style="display:flex;flex-wrap:wrap;gap:12px">
+        ${btn('penjualan','🧾','Penjualan / Pendapatan','Jual barang/jasa (tunai atau piutang) + PPN Keluaran','hijau')}
+        ${btn('pembelian','🛒','Pembelian / Beban','Beli/bayar beban (tunai atau utang) + PPN Masukan','hijau')}
+        ${btn('terima','💰','Terima Pembayaran','Pelunasan piutang dari pelanggan','abu')}
+        ${btn('bayar','💸','Bayar Utang','Pelunasan utang ke pemasok','abu')}
+      </div>
+      <p class="muted" style="font-size:12px;margin-top:12px">💡 Jurnalnya bisa dilihat/diperbaiki di menu <b>Jurnal Umum</b>. Untuk staf klien: jurnal berstatus draf sampai disetujui konsultan (kecuali diberi izin posting langsung).</p>`}
+    </div></div>`;
+  content().querySelectorAll('[data-tx]').forEach(b=>b.onclick=()=>modalTransaksi(b.dataset.tx));
+}
+function modalTransaksi(tipe){
+  const accs=State.accounts||[];
+  const byCat=(cat)=>accs.filter(a=>a.category===cat);
+  const findA=(code,re)=>accs.find(a=>a.code===code)||(re?accs.find(a=>re.test((a.name||'').toLowerCase())):null);
+  const kasList=accs.filter(a=>a.isCash);
+  const opt=(list,sel)=>list.map(a=>`<option value="${a.code}" ${a.code===sel?'selected':''}>${esc(a.code)} — ${esc(a.name)}</option>`).join('');
+  const piutang=findA('1-1300',/piutang usaha|piutang/), utang=findA('2-1100',/utang usaha|utang/);
+  const ppnK=findA('2-1210',/ppn keluaran/), ppnM=findA('1-1600',/ppn masukan/);
+  const kasDef=((findA('1-1200',/bank/)||kasList[0]||{}).code)||'';
+  const T={penjualan:'🧾 Penjualan / Pendapatan',pembelian:'🛒 Pembelian / Beban',terima:'💰 Terima Pembayaran',bayar:'💸 Bayar Utang'}[tipe];
+  const isPP=(tipe==='penjualan'||tipe==='pembelian');
+  let fields='';
+  if(isPP){
+    const lawan=tipe==='penjualan'?byCat('PENDAPATAN'):[...byCat('BEBAN'),...accs.filter(a=>a.category==='ASET'&&/^1-1[45]|^1-2/.test(a.code))];
+    const lawanDef=tipe==='penjualan'?((findA('4-1100')||byCat('PENDAPATAN')[0]||{}).code):((findA('5-1100')||byCat('BEBAN')[0]||{}).code);
+    fields=`
+      <div class="field"><label>${tipe==='penjualan'?'Akun Pendapatan':'Akun Beban / Pembelian'}</label><select id="txLawan">${opt(lawan,lawanDef)}</select></div>
+      <div class="flex"><div class="field" style="flex:1"><label>Nilai (DPP, Rp)</label><input type="number" id="txDpp" min="0" value="0"></div>
+        <div class="field" style="flex:1"><label>${tipe==='penjualan'?'Diterima':'Dibayar'} via</label><select id="txCara"><option value="tunai">Tunai (Kas/Bank)</option><option value="kredit">${tipe==='penjualan'?'Piutang (kredit)':'Utang (kredit)'}</option></select></div></div>
+      <div class="field" id="txKasWrap"><label>Akun Kas/Bank</label><select id="txKas">${opt(kasList.length?kasList:accs,kasDef)}</select></div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-top:4px"><input type="checkbox" id="txPpnOn"> Kena PPN <span class="muted">(otomatis 11%, bisa diubah)</span></label>
+      <div class="field" id="txPpnWrap" style="display:none"><label>PPN (Rp)</label><input type="number" id="txPpn" min="0" value="0"></div>`;
+  } else {
+    fields=`<div class="flex"><div class="field" style="flex:1"><label>Jumlah (Rp)</label><input type="number" id="txJml" min="0" value="0"></div>
+      <div class="field" style="flex:1"><label>${tipe==='terima'?'Diterima di':'Dibayar dari'} (Kas/Bank)</label><select id="txKas">${opt(kasList.length?kasList:accs,kasDef)}</select></div></div>`;
+  }
+  const wrap=document.createElement('div'); wrap.className='modal-bg';
+  wrap.innerHTML=`<div class="modal" style="max-width:520px"><div class="hd"><h3>${T}</h3><button class="x">&times;</button></div>
+    <div class="bd"><div id="txMsg"></div>
+      <div class="flex"><div class="field" style="flex:1"><label>Tanggal</label><input type="date" id="txTgl" value="${todayStr()}"></div>
+        <div class="field" style="flex:2"><label>Keterangan</label><input id="txKet" placeholder="mis. ${tipe==='penjualan'?'Penjualan ke PT Budi':tipe==='pembelian'?'Beli ATK di Toko A':tipe==='terima'?'Pelunasan dari PT Budi':'Bayar ke pemasok B'}"></div></div>
+      ${fields}
+      <div id="txPrev" class="muted" style="font-size:12px;margin-top:8px"></div>
+      <div class="flex mt"><div class="spacer"></div><button class="btn abu" id="txBatal">Batal</button><button class="btn hijau" id="txSimpan">Simpan (Buat Jurnal)</button></div>
+    </div></div>`;
+  document.body.appendChild(wrap);
+  const close=()=>wrap.remove(); const g=id=>{const el=wrap.querySelector('#'+id);return el?el.value:'';};
+  wrap.querySelector('.x').onclick=close; wrap.querySelector('#txBatal').onclick=close; wrap.onclick=(e)=>{if(e.target===wrap)close();};
+  const prev=wrap.querySelector('#txPrev');
+  const ppnOn=wrap.querySelector('#txPpnOn'), caraSel=wrap.querySelector('#txCara');
+  const recalc=()=>{
+    if(!isPP){ const j=Math.round(Number(g('txJml'))||0); prev.textContent=j>0?`Jurnal: Dr/Cr Rp ${fmtNum(j)}`:''; return; }
+    const dpp=Math.round(Number(g('txDpp'))||0);
+    if(ppnOn.checked){ wrap.querySelector('#txPpnWrap').style.display=''; const p=wrap.querySelector('#txPpn'); if(!p.dataset.touched) p.value=Math.round(dpp*0.11); }
+    else wrap.querySelector('#txPpnWrap').style.display='none';
+    const ppn=ppnOn.checked?Math.round(Number(g('txPpn'))||0):0;
+    prev.textContent=dpp>0?`Total: Rp ${fmtNum(dpp+ppn)} (DPP ${fmtNum(dpp)}${ppn?` + PPN ${fmtNum(ppn)}`:''})`:'';
+  };
+  if(isPP){ ppnOn.onchange=recalc; wrap.querySelector('#txDpp').oninput=recalc; const p=wrap.querySelector('#txPpn'); p.oninput=()=>{p.dataset.touched='1';recalc();}; caraSel.onchange=()=>{wrap.querySelector('#txKasWrap').style.display=caraSel.value==='tunai'?'':'none';}; }
+  else { wrap.querySelector('#txJml').oninput=recalc; }
+  wrap.querySelector('#txSimpan').onclick=async()=>{
+    const err=(m)=>{ wrap.querySelector('#txMsg').innerHTML=`<div class="pesan err">${esc(m)}</div>`; };
+    const tgl=g('txTgl'); if(!tgl) return err('Isi tanggal.');
+    let lines=[];
+    if(isPP){
+      const dpp=Math.round(Number(g('txDpp'))||0); if(!(dpp>0)) return err('Nilai (DPP) harus lebih dari 0.');
+      const ppn=ppnOn.checked?Math.round(Number(g('txPpn'))||0):0; const total=dpp+ppn; const cara=g('txCara'); const lawan=g('txLawan'); const kas=g('txKas');
+      if(cara==='tunai'&&!kas) return err('Pilih akun Kas/Bank.');
+      if(tipe==='penjualan'){
+        const dr=cara==='tunai'?kas:(piutang&&piutang.code); if(!dr) return err('Akun Piutang Usaha (1-1300) tidak ada di buku ini.');
+        lines.push({accountCode:dr,debit:total,credit:0}); lines.push({accountCode:lawan,debit:0,credit:dpp});
+        if(ppn>0){ if(!ppnK) return err('Akun PPN Keluaran (2-1210) tidak ada.'); lines.push({accountCode:ppnK.code,debit:0,credit:ppn}); }
+      } else {
+        const cr=cara==='tunai'?kas:(utang&&utang.code); if(!cr) return err('Akun Utang Usaha (2-1100) tidak ada di buku ini.');
+        lines.push({accountCode:lawan,debit:dpp,credit:0});
+        if(ppn>0){ if(!ppnM) return err('Akun PPN Masukan (1-1600) tidak ada.'); lines.push({accountCode:ppnM.code,debit:ppn,credit:0}); }
+        lines.push({accountCode:cr,debit:0,credit:total});
+      }
+    } else {
+      const jml=Math.round(Number(g('txJml'))||0); if(!(jml>0)) return err('Jumlah harus lebih dari 0.'); const kas=g('txKas'); if(!kas) return err('Pilih akun Kas/Bank.');
+      if(tipe==='terima'){ if(!piutang) return err('Akun Piutang Usaha (1-1300) tidak ada.'); lines=[{accountCode:kas,debit:jml,credit:0},{accountCode:piutang.code,debit:0,credit:jml}]; }
+      else { if(!utang) return err('Akun Utang Usaha (2-1100) tidak ada.'); lines=[{accountCode:utang.code,debit:jml,credit:0},{accountCode:kas,debit:0,credit:jml}]; }
+    }
+    const desc=g('txKet').trim()||({penjualan:'Penjualan',pembelian:'Pembelian/Beban',terima:'Pelunasan piutang',bayar:'Pembayaran utang'}[tipe]);
+    const b=wrap.querySelector('#txSimpan'); b.disabled=true; b.textContent='Menyimpan…';
+    try{ await api('POST',burl('/journals'),{date:tgl,description:desc,lines}); close(); State.view='jurnal'; renderApp(); }
+    catch(e){ err(e.message); b.disabled=false; b.textContent='Simpan (Buat Jurnal)'; }
   };
 }
 
