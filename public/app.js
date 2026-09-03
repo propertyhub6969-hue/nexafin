@@ -2122,7 +2122,7 @@ async function viewKlien(){
       <td><b>${esc(c.nama)}</b></td><td class="kode">${esc(c.npwp||'-')}</td>
       <td>${esc(c.jenisUsaha||'-')}</td><td>${pjCell}</td>
       <td>${c.status==='nonaktif'?'<span class="chip buruk">Nonaktif</span>':'<span class="chip baik">Aktif</span>'}</td>
-      <td class="right"><button class="btn abu kecil" data-doc="${c.id}">Dokumen</button>${!isStaffRole?` <button class="btn abu kecil" data-edit="${c.id}">Ubah</button>`:''}${isAdminRole?` <button class="btn abu kecil" data-del="${c.id}">Hapus</button>`:''}</td>
+      <td class="right"><button class="btn abu kecil" data-doc="${c.id}">Dokumen</button> <button class="btn abu kecil" data-sptrekap="${c.id}" title="Cetak/PDF rekap SPT">🖨️ Rekap SPT</button>${!isStaffRole?` <button class="btn abu kecil" data-edit="${c.id}">Ubah</button>`:''}${isAdminRole?` <button class="btn abu kecil" data-del="${c.id}">Hapus</button>`:''}</td>
     </tr>`;
   }).join('')||'<tr><td colspan="6" class="muted" style="text-align:center;padding:16px">Belum ada klien.</td></tr>';
   content().innerHTML=`
@@ -2135,6 +2135,7 @@ async function viewKlien(){
   content().querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>modalKlien(clients.find(c=>c.id===b.dataset.edit),staff));
   content().querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{ if(!confirm('Hapus klien ini beserta dokumen, tugas & invoice-nya?'))return; await api('DELETE','/api/clients/'+b.dataset.del); viewKlien(); });
   content().querySelectorAll('[data-doc]').forEach(b=>b.onclick=()=>{ State.arsipKlien=b.dataset.doc; State.view='arsip'; renderApp(); });
+  content().querySelectorAll('[data-sptrekap]').forEach(b=>b.onclick=()=>{ const c=clients.find(x=>x.id===b.dataset.sptrekap); if(c) cetakRekapSPT(c); });
 }
 function modalKlien(c,staff){
   const isEdit=!!c;
@@ -2379,6 +2380,77 @@ function modalBukti(t){
 }
 
 /* ============ INVOICE KLIEN ============ */
+function terbilang(n){
+  n=Math.floor(Math.abs(Number(n)||0)); if(n===0) return 'nol';
+  const sat=['','satu','dua','tiga','empat','lima','enam','tujuh','delapan','sembilan','sepuluh','sebelas'];
+  const tw=(x)=>{
+    if(x<12) return sat[x];
+    if(x<20) return tw(x-10)+' belas';
+    if(x<100) return tw(Math.floor(x/10))+' puluh'+(x%10?' '+tw(x%10):'');
+    if(x<200) return 'seratus'+(x%100?' '+tw(x%100):'');
+    if(x<1000) return tw(Math.floor(x/100))+' ratus'+(x%100?' '+tw(x%100):'');
+    if(x<2000) return 'seribu'+(x%1000?' '+tw(x%1000):'');
+    if(x<1e6) return tw(Math.floor(x/1000))+' ribu'+(x%1000?' '+tw(x%1000):'');
+    if(x<1e9) return tw(Math.floor(x/1e6))+' juta'+(x%1e6?' '+tw(x%1e6):'');
+    if(x<1e12) return tw(Math.floor(x/1e9))+' miliar'+(x%1e9?' '+tw(x%1e9):'');
+    return tw(Math.floor(x/1e12))+' triliun'+(x%1e12?' '+tw(x%1e12):'');
+  };
+  return tw(n).replace(/\s+/g,' ').trim();
+}
+function cetakInvoice(inv,clients){
+  const c=(clients||[]).find(x=>x.id===inv.clientId)||{};
+  const firma=(State.company&&State.company.name)||'';
+  const rp=v=>'Rp '+fmtNum(v);
+  const statusTxt=(I_STATUS[inv.status]&&I_STATUS[inv.status][0])||inv.status||'';
+  const w=window.open('','_blank'); if(!w){alert('Popup diblokir — izinkan popup untuk mencetak.');return;}
+  w.document.write(`<html><head><title>Invoice ${esc(inv.nomor)}</title><style>
+    body{font-family:Arial,sans-serif;font-size:13px;color:#1a202c;padding:36px;max-width:720px;margin:auto}
+    .hd{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #0f2a47;padding-bottom:12px;margin-bottom:18px}
+    .firma{font-size:18px;font-weight:bold;color:#0f2a47}
+    h1{font-size:24px;letter-spacing:3px;color:#0f2a47;margin:0}
+    .row{display:flex;justify-content:space-between;margin:8px 0}
+    table{width:100%;border-collapse:collapse;margin:16px 0}
+    th,td{padding:8px 10px;border-bottom:1px solid #e2e8f0;text-align:left}.num{text-align:right}
+    thead th{background:#eef2f7}.total td{font-weight:bold;font-size:15px;border-top:2px solid #cbd5e0}
+    .terbilang{font-style:italic;color:#444;margin-top:6px}
+  </style></head><body>
+    <div class="hd"><div class="firma">${esc(firma)}</div><h1>INVOICE</h1></div>
+    <div class="row">
+      <div><b>Kepada:</b><br>${esc(inv.clientName||c.nama||'')}${c.npwp?'<br>NPWP: '+esc(c.npwp):''}${c.telepon?'<br>'+esc(c.telepon):''}</div>
+      <div style="text-align:right">
+        <div><b>No:</b> ${esc(inv.nomor)}</div>
+        <div><b>Tanggal:</b> ${esc(inv.tanggal||'')}</div>
+        <div><b>Jatuh Tempo:</b> ${esc(inv.jatuhTempo||'-')}</div>
+        <div><b>Status:</b> ${esc(statusTxt)}</div>
+      </div>
+    </div>
+    <table><thead><tr><th>Keterangan</th><th class="num">Jumlah</th></tr></thead>
+      <tbody><tr><td>${esc(inv.keterangan||'Jasa konsultan/pembukuan')}</td><td class="num">${rp(inv.jumlah)}</td></tr></tbody>
+      <tfoot><tr class="total"><td class="num">TOTAL</td><td class="num">${rp(inv.jumlah)}</td></tr></tfoot></table>
+    <div class="terbilang">Terbilang: ${esc(terbilang(inv.jumlah))} rupiah</div>
+    <p style="margin-top:48px">Hormat kami,<br><br><br><b>${esc(firma)}</b></p>
+  </body></html>`);
+  w.document.close(); setTimeout(()=>w.print(),300);
+}
+async function cetakRekapSPT(client){
+  let list=[];
+  try{ const r=await api('GET','/api/tasks?clientId='+encodeURIComponent(client.id)); list=(r.tasks||[]); }catch(e){ alert(e.message); return; }
+  list.sort((a,b)=>(a.periode||'').localeCompare(b.periode||''));
+  const firma=(State.company&&State.company.name)||'';
+  const stTxt=s=>({belum:'Belum',proses:'Proses',review:'Review',selesai:'Selesai'})[s]||s;
+  const rows=list.map(t=>`<tr><td>${esc(t.jenis)}</td><td>${esc(t.periode||'-')}</td><td>${esc(t.deadlineEfektif||t.deadline||'-')}</td><td>${esc(stTxt(t.status))}</td><td>${t.punyaBukti?'✓ BPE':'-'}</td></tr>`).join('')||'<tr><td colspan="5" style="text-align:center;color:#888;padding:12px">Belum ada pekerjaan SPT.</td></tr>';
+  const w=window.open('','_blank'); if(!w){alert('Popup diblokir — izinkan popup untuk mencetak.');return;}
+  w.document.write(`<html><head><title>Rekap SPT — ${esc(client.nama)}</title><style>
+    body{font-family:Arial,sans-serif;font-size:12px;padding:32px;color:#1a202c}
+    h2{text-align:center;margin:0 0 2px;color:#0f2a47}p.sub{text-align:center;color:#666;margin:0 0 16px}
+    table{width:100%;border-collapse:collapse}th,td{padding:6px 10px;border-bottom:1px solid #e2e8f0;text-align:left}thead th{background:#eef2f7}
+  </style></head><body>
+    <h2>Rekap Pekerjaan / SPT</h2>
+    <p class="sub">${esc(firma)} — Klien: <b>${esc(client.nama)}</b>${client.npwp?' · NPWP '+esc(client.npwp):''} · dicetak ${esc(todayStr())}</p>
+    <table><thead><tr><th>Jenis SPT</th><th>Periode</th><th>Tenggat</th><th>Status</th><th>Bukti</th></tr></thead><tbody>${rows}</tbody></table>
+  </body></html>`);
+  w.document.close(); setTimeout(()=>w.print(),300);
+}
 async function viewInvoiceKlien(){
   const meta=await ensureMeta();
   const {clients,staff}=await loadKlienStaff();
@@ -2391,7 +2463,7 @@ async function viewInvoiceKlien(){
       <td>${esc(i.jatuhTempo||'-')}</td><td class="num">${fmtNum(i.jumlah)}</td>
       <td>${i.assigneeName?esc(i.assigneeName):'<span class="muted">—</span>'}</td>
       <td><select class="iv-status" data-id="${i.id}">${meta.statusInvoice.map(s=>`<option value="${s}" ${i.status===s?'selected':''}>${I_STATUS[s][0]}</option>`).join('')}</select></td>
-      <td class="right"><button class="btn abu kecil" data-edit="${i.id}">Ubah</button>${isAdmin?` <button class="btn abu kecil" data-del="${i.id}">Hapus</button>`:''}</td>
+      <td class="right"><button class="btn abu kecil" data-print="${i.id}" title="Cetak/PDF invoice">🖨️</button> <button class="btn abu kecil" data-edit="${i.id}">Ubah</button>${isAdmin?` <button class="btn abu kecil" data-del="${i.id}">Hapus</button>`:''}</td>
     </tr>`).join('')||'<tr><td colspan="8" class="muted" style="text-align:center;padding:16px">Belum ada invoice.</td></tr>';
   content().innerHTML=`
     <div class="grid k3">
@@ -2405,6 +2477,7 @@ async function viewInvoiceKlien(){
       <tbody>${rows}</tbody></table></div></div></div>`;
   document.getElementById('addInv').onclick=()=>modalInvoice(null,clients,staff,meta);
   content().querySelectorAll('.iv-status').forEach(sel=>sel.onchange=async()=>{ await api('PUT','/api/invoices/'+sel.dataset.id,{status:sel.value}); viewInvoiceKlien(); });
+  content().querySelectorAll('[data-print]').forEach(b=>b.onclick=()=>{ const inv=r.invoices.find(i=>i.id===b.dataset.print); if(inv) cetakInvoice(inv,clients); });
   content().querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>modalInvoice(r.invoices.find(i=>i.id===b.dataset.edit),clients,staff,meta));
   content().querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{ if(!confirm('Hapus invoice ini?'))return; await api('DELETE','/api/invoices/'+b.dataset.del); viewInvoiceKlien(); });
 }
