@@ -196,6 +196,7 @@ const MENU=[
   {grp:'AI & Otomasi'},
   {v:'impor',t:'Impor & AI',e:'📥'},
   {v:'insight',t:'Insight AI',e:'💡'},
+  {v:'suratdjp',t:'Draf Surat DJP',e:'✉️'},
   {grp:'Analisis'},
   {v:'anggaran',t:'Anggaran',e:'🎯'},
   {v:'varians',t:'Analisis Varians',e:'🔍'},
@@ -204,7 +205,7 @@ const MENU=[
   {v:'akun',t:'Bagan Akun',e:'🗂️'},
 ];
 // View akuntansi yang terikat pada satu buku (klien/firma)
-const BOOK_VIEWS=new Set(['dashboard','jurnal','bukubesar','neracasaldo','labarugi','neraca','ekuitas','aruskas','calk','impor','insight','anggaran','varians','rekonsiliasi','aset','akun']);
+const BOOK_VIEWS=new Set(['dashboard','jurnal','bukubesar','neracasaldo','labarugi','neraca','ekuitas','aruskas','calk','impor','insight','suratdjp','anggaran','varians','rekonsiliasi','aset','akun']);
 function bookSwitcherHTML(){
   if(!BOOK_VIEWS.has(State.view)) return '';
   if(!State.books||State.books.length<2) return '';   // sembunyikan bila hanya satu buku (mis. staf klien)
@@ -328,7 +329,7 @@ async function routeView(){
     const map={dashboard:viewDashboard,jurnal:viewJurnal,bukubesar:viewBukuBesar,neracasaldo:viewNeracaSaldo,
       labarugi:viewLabaRugi,neraca:viewNeraca,ekuitas:viewPerubahanEkuitas,aruskas:viewArusKas,calk:viewCALK,anggaran:viewAnggaran,varians:viewVarians,
       rekonsiliasi:viewRekonsiliasi,aset:viewAsetTetap,akun:viewAkun,admin:viewAdmin,pengaturan:viewPengaturan,
-      impor:viewImpor,insight:viewInsight,setelanai:viewSetelanAI,libur:viewLibur,
+      impor:viewImpor,insight:viewInsight,suratdjp:viewSuratDJP,setelanai:viewSetelanAI,libur:viewLibur,
       konsultan:viewKonsultan,klien:viewKlien,penugasan:viewPenugasan,pekerjaan:viewPekerjaan,invoice:viewInvoiceKlien,arsip:viewArsip,tim:viewTim,pengingat:viewPengingat,kotakmasuk:viewKotakMasuk};
     const fn=map[State.view]||viewDashboard;
     await fn();
@@ -1914,6 +1915,40 @@ async function viewInsight(){
       document.getElementById('insHasil').innerHTML=`<div class="card"><div class="hd"><h3>Analisis AI — ${namaBulan(State.periode.bulan)}</h3></div><div class="bd">${mdToHtml(r.text)}</div></div>`;
     }catch(e){ document.getElementById('insHasil').innerHTML=`<div class="pesan err">${esc(e.message)}</div>`; }
     finally{ btn.disabled=false; btn.textContent='💡 Buat Insight AI'; }
+  };
+}
+
+/* ============ DRAF SURAT DJP (AI, grounded) ============ */
+async function viewSuratDJP(){
+  content().innerHTML=`
+    ${bookBanner()}
+    <div class="card"><div class="hd"><h3>✉️ Draf Surat DJP (AI)</h3></div><div class="bd">
+      <p class="muted" style="margin-top:0">AI menyusun draf surat pajak untuk <b>klien buku ini</b>, membumi ke datanya. ⚠️ Ini <b>DRAF</b> — wajib <b>diperiksa & disesuaikan konsultan</b> sebelum dikirim. Butuh kunci API aktif (Setelan AI).</p>
+      <div class="flex">
+        <div class="field" style="flex:1"><label>Jenis Surat</label><select id="sdJenis">
+          <option value="sp2dk">Tanggapan SP2DK</option>
+          <option value="keberatan">Surat Keberatan</option>
+          <option value="pengurangan-sanksi">Permohonan Pengurangan/Penghapusan Sanksi</option>
+          <option value="klarifikasi">Klarifikasi</option></select></div>
+        <div class="field" style="flex:1"><label>Periode data pendukung</label><input type="month" id="sdBulan" value="${State.periode.bulan}"></div>
+      </div>
+      <div class="field"><label>Konteks / isi surat DJP / poin yang ditanggapi</label>
+        <textarea id="sdKonteks" rows="5" placeholder="Tempel isi SP2DK atau tulis poin-poin yang perlu ditanggapi…"></textarea></div>
+      <button class="btn hijau" id="sdBuat">✉️ Buat Draf</button>
+      <div id="sdHasil" style="margin-top:14px"></div>
+    </div></div>`;
+  document.getElementById('sdBulan').onchange=(e)=>{State.periode.bulan=e.target.value;};
+  document.getElementById('sdBuat').onclick=async()=>{
+    const {from,to}=monthRange(State.periode.bulan);
+    const body=withBook({jenis:document.getElementById('sdJenis').value,konteks:document.getElementById('sdKonteks').value,from,to});
+    const btn=document.getElementById('sdBuat'); btn.disabled=true; btn.textContent='AI menyusun…';
+    document.getElementById('sdHasil').innerHTML='<div class="loader">AI sedang menyusun draf surat…</div>';
+    try{
+      const r=await api('POST','/api/ai/surat-djp',body);
+      document.getElementById('sdHasil').innerHTML=`<div class="card"><div class="hd"><h3>Draf Surat</h3><button class="btn abu kecil" id="sdCopy">📋 Salin</button></div><div class="bd">${mdToHtml(r.text)}</div></div>`;
+      document.getElementById('sdCopy').onclick=()=>{ (navigator.clipboard?navigator.clipboard.writeText(r.text):Promise.reject()).then(()=>alert('Draf disalin. Tempel di pengolah kata untuk disunting & dicek.')).catch(()=>alert('Salin manual dari layar.')); };
+    }catch(e){ document.getElementById('sdHasil').innerHTML=`<div class="pesan err">${esc(e.message)}</div>`; }
+    finally{ btn.disabled=false; btn.textContent='✉️ Buat Draf'; }
   };
 }
 
