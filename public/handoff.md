@@ -2,7 +2,7 @@
 
 Dokumen serah-terima untuk siapa pun yang melanjutkan pengembangan **Nexafin** (dulu "Web Akunting"/"Abhista Fin"): aplikasi web **akuntansi (SAK/PSAK) + manajemen praktik konsultan pajak** dengan otomasi AI, kolaborasi jurnal klien↔konsultan, buku per-klien, aset tetap, dan laporan keuangan lengkap termasuk CALK.
 
-Terakhir diperbarui: Agustus 2026 · Status: **berfungsi penuh** (akuntansi lengkap + konsultan + kolaborasi).
+Terakhir diperbarui: **September 2026** · Status: **berfungsi penuh** (akuntansi lengkap + konsultan + kolaborasi). Update Sep: model peran per-klien (buang "Pengawas"), pelepasan+impor/ekspor aset, kalender libur, cetak PDF invoice/SPT, toggle persetujuan staf klien, AI Insight+Draf Surat DJP, Form Input Transaksi.
 Baca juga `memory.md` (catatan keputusan, konvensi, gotcha, checklist status yang selalu paling mutakhir).
 
 ---
@@ -96,9 +96,10 @@ Frontend: `State.bookId`, helper `curBook()`, `burl(sub,params)` → `/api/books
 | Peran | Lingkup |
 |---|---|
 | `admin`/`user` | Konsultan/pemilik. Semua buku (firma + semua klien), semua modul. |
-| `pengawas` | Hanya **tim**-nya (staf dgn `supervisorId`=dia) + klien tim. Bisa kunci/buka periode. Tanpa dashboard finansial firma. |
-| `staff` | Hanya tugas & klien yang **ditugaskan** padanya. |
-| `klien-staff` | Staf perusahaan **klien**, terikat 1 `clientId`. Hanya buku klien itu; menu pembukuan saja; jurnalnya **draf** sampai disetujui firma. Tanpa modul konsultan. |
+| `staff` (Anggota) | Akses ditentukan **per-klien** via menu **Penugasan**: **PJ** (`client.assignedTo`), **Pelaksana Pembukuan** (`client.pembukuanBy[]`), **Pelaksana Pajak** (`client.perpajakanBy[]`). Klien & buku yang terlihat = union ketiganya (`visibleClientIds`). PJ bisa buat/kelola akun staf + reset password utk klien yg dia-PJ-kan. |
+| `klien-staff` | Staf perusahaan **klien**, terikat 1 `clientId`. Hanya buku klien itu; menu pembukuan saja; jurnalnya **draf** sampai disetujui firma (kecuali `autoApprove` ON). Tanpa modul konsultan. |
+
+> ⚠️ **Peran `pengawas` SUDAH DIHAPUS (Fase 4, Sep 2026)** — dulu peran bertingkat berbasis `supervisorId`; diganti peran murni per-klien di atas karena alurnya berbelit. Ada migrasi idempoten `pengawas→staff` di `db.js`. `supervisorId` jadi vestigial.
 
 Helper: `visibleClientIds(user)` (himpunan klien terlihat; klien-staff = {clientId}-nya), `canSeeClient`, `isFirmSide` (bukan klien-staff). RBAC dijaga di `routes-consult.js` (klien & dokumen difilter) dan `books.js/routes-books.js` (buku & jurnal).
 
@@ -112,7 +113,7 @@ Helper: `visibleClientIds(user)` (himpunan klien terlihat; klien-staff = {client
 - **Kotak Masuk** `GET /api/books/inbox`: draf menunggu, dikelompokkan per klien (menu "Kotak Masuk Jurnal").
 - **Lampiran** `journal.attachments=[docId]` → koleksi `documents` (`sumber:'jurnal'|'arsip'`, hanya buku klien). Hapus jurnal: file `sumber:'jurnal'` tanpa rujukan lain → hapus fisik (nama dicatat di log); `sumber:'arsip'` → lepas rujukan saja. Kompresi gambar di klien (`fileToAttachment`), maks 8MB, pratinjau `?inline=1`.
 - **Log penghapusan** koleksi `journalDeletions` (cap 5000/firma; Pasal 28 UU KUP): siapa/kapan/isi jurnal + nama file. `GET /api/books/:b/deletions`.
-- **Kunci periode** koleksi `periodLocks` (bookId+periode). Admin/pengawas kunci (butuh scope buku), buka wajib catatan. Tulis/ubah/hapus jurnal bertanggal di periode terkunci → **HTTP 423**; tombol hapus jadi "Buat Koreksi".
+- **Kunci periode** koleksi `periodLocks` (bookId+periode). Sisi firma (admin/PJ berwenang) kunci (butuh scope buku), buka wajib catatan. Tulis/ubah/hapus jurnal bertanggal di periode terkunci → **HTTP 423**; tombol hapus jadi "Buat Koreksi".
 
 ---
 
@@ -120,7 +121,7 @@ Helper: `visibleClientIds(user)` (himpunan klien terlihat; klien-staff = {client
 
 Ber-tenant lewat `companyId` (kecuali `users`, `companies`, `settings`). Untuk koleksi akuntansi, `companyId` = **scope buku** (firma id atau clientId).
 
-`users`(+`supervisorId`,`clientId`,`perms{invoice}`), `companies`, `accounts`, `journals`(+`status`,`comments[]`,`attachments[]`,`createdBy`,`approvedBy`,`editCount`,`dariImpor`,`dariPenyusutan`), `budgets`, `bankRecs`, `counters`, `settings`, `imports`, `classifiers`, `rules`, `clients`(+`jenisUsaha` terstruktur, `assignedTo`, `pembukuanBy[]`), `tasks`, `invoices`, `documents`(+`sumber`), `activities`, `journalDeletions`, `periodLocks`, `assets`, `calk`.
+`users`(+`clientId`,`perms{invoice}`,`autoApprove`; `supervisorId` kini vestigial), `companies`, `accounts`, `journals`(+`status`,`comments[]`,`attachments[]`,`createdBy`,`approvedBy`,`editCount`,`dariImpor`,`dariPenyusutan`), `budgets`, `bankRecs`, `counters`, `settings`, `imports`, `classifiers`, `rules`, `clients`(+`jenisUsaha` terstruktur, `assignedTo`(PJ), `pembukuanBy[]`, `perpajakanBy[]`), `tasks`, `invoices`, `documents`(+`sumber`), `activities`, `journalDeletions`, `periodLocks`, `assets`, `calk`.
 
 **assets**: `{companyId(bookId), nama, tanggalPerolehan, harga, nilaiResidu, metode(garis-lurus|saldo-menurun), masaManfaat, kelompokFiskal(I..IV|bangunan-*|non-penyusutan), metodeFiskal, akunAset/akunAkumulasi/akunBeban, aktif, penyusutanPosted[]}`.
 **calk**: `{companyId(bookId), infoUmum, penyusunan, kebijakan[], pihakBerelasi, perpajakan, peristiwaSetelah}` (template narasi; angka dihasilkan otomatis saat render).
@@ -133,7 +134,7 @@ Ber-tenant lewat `companyId` (kecuali `users`, `companies`, `settings`). Untuk k
 - **Status jurnal**: jangan filter laporan `=== 'disetujui'` (buang data lama) — pakai `!== 'draf'` (`acc.isPosted`).
 - **HTTP 423** = periode terkunci (frontend tampilkan "Buat Koreksi").
 - **Lampiran hanya buku klien** (butuh clientId); buku firma tidak menyimpan lampiran.
-- **Aset**: jurnal *perolehan* TIDAK diposting otomatis (asumsi lewat impor/jurnal biasa) — master aset = subledger untuk penyusutan. Penyusutan **komersial** diposting (idempoten via `penyusutanPosted`, skip periode terkunci); **fiskal** hanya untuk koreksi. Pelepasan/disposal aset belum ada.
+- **Aset**: jurnal *perolehan* TIDAK diposting otomatis (asumsi lewat impor/jurnal biasa) — master aset = subledger untuk penyusutan. Penyusutan **komersial** diposting (idempoten via `penyusutanPosted`, skip periode terkunci); **fiskal** hanya untuk koreksi. **Pelepasan/disposal aset SUDAH ada (Sep 2026):** jurnal disposal otomatis & seimbang (nilai akumulasi diambil dari GL — jurnal `dariPenyusutan` — agar tak ada selisih pembulatan); + **impor Excel/CSV & ekspor CSV/PDF** aset utk migrasi massal.
 - **CALK**: angka otomatis (`buildAuto`) real-time dari buku; narasi = template tersimpan; `?bawaan=1` kembalikan default per jenisUsaha.
 - **XLSX reader**: parse ZIP+sharedStrings+sheet manual; sudah menangani urutan atribut sel (`t="s"`); teruji mutasi BRI 2.300+ baris.
 - **AI (Anthropic)** via https bawaan; butuh kunci (Setelan AI) + internet; tanpa kunci fitur AI mati dengan pesan, sisanya jalan.
@@ -151,11 +152,12 @@ Ber-tenant lewat `companyId` (kecuali `users`, `companies`, `settings`). Untuk k
 
 > **Peta jalan migrasi ke cloud tersedia di `migrasi.md`** — memetakan backlog infrastruktur di bawah (hosting, backup, keamanan, SQLite/Postgres) ke fase eksekusi di VPS nexafin.id.
 
-- **Persediaan** (klien dagang/manufaktur) — kartu stok, HPP.
-- **Pelepasan/penjualan aset tetap** (laba/rugi pelepasan, hentikan penyusutan).
-- Migrasi penyimpanan JSON → **SQLite** → **PostgreSQL** saat tenant banyak.
-- **HTTPS + hosting** (VPS + PM2); pengingat **email/WhatsApp**; cetak invoice/SPT PDF.
-- Impor kalender libur nasional per tahun; keamanan produksi (rate limit, lupa sandi, audit, backup otomatis).
+- **Persediaan** (klien dagang/manufaktur) — kartu stok, HPP. *(belum)*
+- **Persona "Perusahaan"** — pemisahan mode Konsultan vs Perusahaan (sembunyikan menu konsultan). *(belum)*
+- Migrasi penyimpanan JSON → **SQLite** → **PostgreSQL** saat tenant banyak. *(belum; pemicu belum tercapai, db.json ~50KB)*
+- Pengingat **email/WhatsApp** saat app tertutup (butuh keputusan gateway SMTP/WA). *(belum)*
+- ✅ **SELESAI (Sep 2026):** HTTPS + hosting (Docker + Caddy, app.nexafin.id, auto-deploy dari git); pelepasan + impor/ekspor aset; cetak PDF invoice & rekap SPT; impor kalender libur nasional + kalender visual; toggle persetujuan staf klien (`autoApprove`); AI Insight (sudut pajak) + Draf Surat DJP; Form Input Transaksi.
+- ✅ Keamanan produksi dasar: rate-limit login, reset password, backup harian, cache-busting otomatis.
 
 ---
 
