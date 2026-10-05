@@ -39,6 +39,10 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .btn.abu{background:#fff;color:var(--teks2);border:1px solid var(--garis)}
 .btn.abu:hover{background:var(--garis2)}
 .btn.kecil{padding:6px 12px;font-size:13px}
+.rowacts{display:inline-flex;gap:5px;white-space:nowrap;justify-content:flex-end;align-items:center}
+.iconbtn{background:#fff;color:var(--teks2);border:1px solid var(--garis);border-radius:7px;width:31px;height:31px;padding:0;font-size:14px;line-height:1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:background .15s,border-color .15s}
+.iconbtn:hover{background:var(--garis2)}
+.iconbtn.del:hover{background:#fde8e8;border-color:var(--merah)}
 .btn:disabled{opacity:.55;cursor:not-allowed}
 .pesan{padding:10px 12px;border-radius:8px;font-size:13px;margin-bottom:12px}
 .pesan.err{background:#fed7d7;color:#822727}

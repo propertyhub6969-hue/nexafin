@@ -1939,7 +1939,7 @@ async function viewTransaksi(){
     </div></div>`;
   content().querySelectorAll('[data-tx]').forEach(b=>b.onclick=()=>modalTransaksi(b.dataset.tx));
 }
-function modalTransaksi(tipe){
+async function modalTransaksi(tipe){
   const accs=State.accounts||[];
   const byCat=(cat)=>accs.filter(a=>a.category===cat);
   const findA=(code,re)=>accs.find(a=>a.code===code)||(re?accs.find(a=>re.test((a.name||'').toLowerCase())):null);
@@ -1962,8 +1962,23 @@ function modalTransaksi(tipe){
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-top:4px"><input type="checkbox" id="txPpnOn"> Kena PPN <span class="muted">(otomatis 11%, bisa diubah)</span></label>
       <div class="field" id="txPpnWrap" style="display:none"><label>PPN (Rp)</label><input type="number" id="txPpn" min="0" value="0"></div>`;
   } else {
-    fields=`<div class="flex"><div class="field" style="flex:1"><label>Jumlah (Rp)</label><input type="number" id="txJml" min="0" value="0"></div>
-      <div class="field" style="flex:1"><label>${tipe==='terima'?'Diterima di':'Dibayar dari'} (Kas/Bank)</label><select id="txKas">${opt(kasList.length?kasList:accs,kasDef)}</select></div></div>`;
+    // Daftar transaksi kredit yang BELUM lunas (piutang utk terima, utang utk bayar) → bisa dipilih utk dilunasi
+    const acctCode=tipe==='terima'?(piutang&&piutang.code):(utang&&utang.code);
+    let items=[];
+    if(acctCode){
+      try{
+        const r=await api('GET',burl('/journals')); const js=r.journals||[]; const isP=(tipe==='terima');
+        const paid={};
+        for(const j of js){ if(!j.settles)continue; const l=(j.lines||[]).find(x=>x.accountCode===acctCode); if(!l)continue; paid[j.settles]=(paid[j.settles]||0)+(isP?(l.credit||0):(l.debit||0)); }
+        for(const j of js){ if(j.settles)continue; const l=(j.lines||[]).find(x=>x.accountCode===acctCode); if(!l)continue; const ori=isP?(l.debit||0):(l.credit||0); if(!(ori>0))continue; const sisa=ori-(paid[j.id]||0); if(sisa>0.5) items.push({id:j.id,date:j.date,desc:j.description||'',sisa:Math.round(sisa)}); }
+        items.sort((a,b)=>(a.date+'').localeCompare(b.date+''));
+      }catch(e){ items=[]; }
+    }
+    const itemOpts=items.map(it=>`<option value="${it.id}" data-sisa="${it.sisa}">${esc(it.date)} — ${esc((it.desc||'(tanpa keterangan)').slice(0,42))} — sisa Rp ${fmtNum(it.sisa)}</option>`).join('');
+    fields=`<div class="field"><label>Lunasi transaksi mana?</label><select id="txSettle"><option value="">— Pelunasan umum (tanpa transaksi tertentu) —</option>${itemOpts}</select>
+        ${items.length?'<div class="muted" style="font-size:11px;margin-top:4px">Pilih transaksi → jumlah terisi otomatis (boleh diubah utk cicil).</div>':'<div class="muted" style="font-size:11px;margin-top:4px">Belum ada '+(tipe==='terima'?'penjualan kredit':'pembelian kredit')+' yang belum lunas — pakai pelunasan umum.</div>'}</div>
+      <div class="flex"><div class="field" style="flex:1"><label>Jumlah (Rp)</label><input type="number" id="txJml" min="0" value="0"></div>
+        <div class="field" style="flex:1"><label>${tipe==='terima'?'Diterima di':'Dibayar dari'} (Kas/Bank)</label><select id="txKas">${opt(kasList.length?kasList:accs,kasDef)}</select></div></div>`;
   }
   const wrap=document.createElement('div'); wrap.className='modal-bg';
   wrap.innerHTML=`<div class="modal" style="max-width:520px"><div class="hd"><h3>${T}</h3><button class="x">&times;</button></div>
@@ -1988,11 +2003,14 @@ function modalTransaksi(tipe){
     prev.textContent=dpp>0?`Total: Rp ${fmtNum(dpp+ppn)} (DPP ${fmtNum(dpp)}${ppn?` + PPN ${fmtNum(ppn)}`:''})`:'';
   };
   if(isPP){ ppnOn.onchange=recalc; wrap.querySelector('#txDpp').oninput=recalc; const p=wrap.querySelector('#txPpn'); p.oninput=()=>{p.dataset.touched='1';recalc();}; caraSel.onchange=()=>{wrap.querySelector('#txKasWrap').style.display=caraSel.value==='tunai'?'':'none';}; }
-  else { wrap.querySelector('#txJml').oninput=recalc; }
+  else { wrap.querySelector('#txJml').oninput=recalc;
+    const sel=wrap.querySelector('#txSettle');
+    if(sel) sel.onchange=()=>{ const o=sel.options[sel.selectedIndex]; const sisa=(o&&o.dataset.sisa)?Number(o.dataset.sisa):0; if(sisa>0){ wrap.querySelector('#txJml').value=sisa; recalc(); } };
+  }
   wrap.querySelector('#txSimpan').onclick=async()=>{
     const err=(m)=>{ wrap.querySelector('#txMsg').innerHTML=`<div class="pesan err">${esc(m)}</div>`; };
     const tgl=g('txTgl'); if(!tgl) return err('Isi tanggal.');
-    let lines=[];
+    let lines=[], settles='';
     if(isPP){
       const dpp=Math.round(Number(g('txDpp'))||0); if(!(dpp>0)) return err('Nilai (DPP) harus lebih dari 0.');
       const ppn=ppnOn.checked?Math.round(Number(g('txPpn'))||0):0; const total=dpp+ppn; const cara=g('txCara'); const lawan=g('txLawan'); const kas=g('txKas');
@@ -2009,12 +2027,15 @@ function modalTransaksi(tipe){
       }
     } else {
       const jml=Math.round(Number(g('txJml'))||0); if(!(jml>0)) return err('Jumlah harus lebih dari 0.'); const kas=g('txKas'); if(!kas) return err('Pilih akun Kas/Bank.');
+      settles=g('txSettle')||'';
       if(tipe==='terima'){ if(!piutang) return err('Akun Piutang Usaha (1-1300) tidak ada.'); lines=[{accountCode:kas,debit:jml,credit:0},{accountCode:piutang.code,debit:0,credit:jml}]; }
       else { if(!utang) return err('Akun Utang Usaha (2-1100) tidak ada.'); lines=[{accountCode:utang.code,debit:jml,credit:0},{accountCode:kas,debit:0,credit:jml}]; }
     }
-    const desc=g('txKet').trim()||({penjualan:'Penjualan',pembelian:'Pembelian/Beban',terima:'Pelunasan piutang',bayar:'Pembayaran utang'}[tipe]);
+    let desc=g('txKet').trim();
+    if(!desc){ desc=({penjualan:'Penjualan',pembelian:'Pembelian/Beban',terima:'Pelunasan piutang',bayar:'Pembayaran utang'}[tipe]);
+      if(settles){ const so=wrap.querySelector('#txSettle'); if(so&&so.selectedIndex>0) desc+=' — '+so.options[so.selectedIndex].textContent.split(' — sisa')[0].trim(); } }
     const b=wrap.querySelector('#txSimpan'); b.disabled=true; b.textContent='Menyimpan…';
-    try{ await api('POST',burl('/journals'),{date:tgl,description:desc,lines}); close(); State.view='jurnal'; renderApp(); }
+    try{ await api('POST',burl('/journals'),{date:tgl,description:desc,lines,settles:settles||undefined}); close(); State.view='jurnal'; renderApp(); }
     catch(e){ err(e.message); b.disabled=false; b.textContent='Simpan (Buat Jurnal)'; }
   };
 }
@@ -2194,7 +2215,7 @@ async function viewPengingat(){
   try{ if(window.Notification && Notification.permission==='granted' && (r.counts.overdue+r.counts.soon)>0 && !window._notifShown){ window._notifShown=true; new Notification('Pengingat Tenggat SPT — Nexafin',{body:`${r.counts.overdue} terlambat, ${r.counts.soon} jatuh tempo ≤ 7 hari.`}); } }catch(e){}
   const tabel=(judul,arr,kelas)=>arr.length?`<div class="card"><div class="hd"><h3>${judul}</h3><span class="chip ${kelas}">${arr.length}</span></div>
     <div class="bd nopad"><div class="tbl-wrap"><table class="tbl">
-      <thead><tr><th>Klien</th><th>Jenis SPT</th><th>Periode</th><th>Tenggat</th><th>Sisa</th><th>Staff</th><th></th></tr></thead>
+      <thead><tr><th>Klien</th><th>Jenis SPT</th><th>Periode</th><th>Tenggat</th><th>Sisa</th><th>PIC</th><th></th></tr></thead>
       <tbody>${arr.map(x=>`<tr>
         <td><b>${esc(x.clientName)}</b></td><td>${esc(x.jenis)}</td><td>${esc(x.periode||'-')}</td>
         <td>${esc(x.deadline)}${x.catatanTenggat?`<div class="muted" style="font-size:11.5px;margin-top:3px;white-space:normal;max-width:230px">⚠ ${esc(x.catatanTenggat)}</div>`:''}</td>
@@ -2258,7 +2279,12 @@ async function viewKlien(){
       <td><b>${esc(c.nama)}</b></td><td class="kode">${esc(c.npwp||'-')}</td>
       <td>${esc(c.jenisUsaha||'-')}</td><td>${pjCell}</td>
       <td>${c.status==='nonaktif'?'<span class="chip buruk">Nonaktif</span>':'<span class="chip baik">Aktif</span>'}</td>
-      <td class="right"><button class="btn abu kecil" data-doc="${c.id}">Dokumen</button> <button class="btn abu kecil" data-sptrekap="${c.id}" title="Cetak/PDF rekap SPT">🖨️ Rekap SPT</button>${!isStaffRole?` <button class="btn abu kecil" data-edit="${c.id}">Ubah</button>`:''}${isAdminRole?` <button class="btn abu kecil" data-del="${c.id}">Hapus</button>`:''}</td>
+      <td class="right"><div class="rowacts">
+        <button class="iconbtn" data-doc="${c.id}" title="Dokumen">📄</button>
+        <button class="iconbtn" data-sptrekap="${c.id}" title="Cetak / PDF rekap SPT">🖨️</button>
+        ${!isStaffRole?`<button class="iconbtn" data-edit="${c.id}" title="Ubah">✏️</button>`:''}
+        ${isAdminRole?`<button class="iconbtn del" data-del="${c.id}" title="Hapus">🗑️</button>`:''}
+      </div></td>
     </tr>`;
   }).join('')||'<tr><td colspan="6" class="muted" style="text-align:center;padding:16px">Belum ada klien.</td></tr>';
   content().innerHTML=`
@@ -2408,13 +2434,13 @@ async function viewPekerjaan(){
     <div class="toolbar">
       <div class="field"><label>Tahun</label><select id="pekTahun"><option value="">Semua</option>${tahunList.map(y=>`<option value="${y}" ${fTahun===y?'selected':''}>${y}</option>`).join('')}</select></div>
       <div class="field"><label>Bulan (SPT Masa)</label><select id="pekBulan" ${fTahun?'':'disabled'}><option value="">Semua bulan</option>${[...Array(12)].map((_,i)=>{const mm=String(i+1).padStart(2,'0');return `<option value="${mm}" ${fBulan===mm?'selected':''}>${BULAN[i+1]}</option>`;}).join('')}</select></div>
-      ${bisaImpersonate?`<div class="field"><label>Lihat sebagai</label><select id="pekAsStaff"><option value="">${isPengawas?'Seluruh tim':'Semua staf'}</option>${staff.map(s=>`<option value="${s.id}" ${asStaff===s.id?'selected':''}>${esc(s.name)}${s.role==='pengawas'?' (pengawas)':''}</option>`).join('')}</select></div>`:''}
+      ${bisaImpersonate?`<div class="field"><label>Lihat sebagai</label><select id="pekAsStaff"><option value="">${isPengawas?'Seluruh tim':'Semua PIC'}</option>${staff.map(s=>`<option value="${s.id}" ${asStaff===s.id?'selected':''}>${esc(s.name)}${s.role==='pengawas'?' (pengawas)':''}</option>`).join('')}</select></div>`:''}
       <label style="font-size:13px;align-self:end;padding-bottom:8px"><input type="checkbox" id="tMine" ${State.tugasMine?'checked':''}> Hanya tugas saya</label>
       <div class="spacer"></div><button class="btn hijau" id="addTugas">+ Tambah Pekerjaan</button>
     </div>
     <div class="card"><div class="hd"><h3>Pekerjaan / Progres SPT</h3><span class="muted">${labelFilter} • ${list.length} dari ${r.tasks.length} pekerjaan</span></div>
     <div class="bd nopad"><div class="tbl-wrap"><table class="tbl">
-      <thead><tr><th>Klien</th><th>Jenis</th><th>Periode</th><th>Staff</th><th>Status</th><th>Tenggat</th><th>Bukti (BPE)</th><th></th></tr></thead>
+      <thead><tr><th>Klien</th><th>Jenis</th><th>Periode</th><th>PIC</th><th>Status</th><th>Tenggat</th><th>Bukti (BPE)</th><th></th></tr></thead>
       <tbody>${rows}</tbody></table></div></div></div>
     <p class="muted" style="font-size:12.5px">Filter berdasarkan <b>periode SPT</b>: pilih Tahun untuk melihat satu tahun penuh, lalu pilih Bulan untuk SPT Masa tertentu. Menandai <b>Selesai</b> mewajibkan lampiran <b>BPE</b>. 📎</p>`;
   document.getElementById('pekTahun').onchange=(e)=>{State.pekTahun=e.target.value; if(!e.target.value)State.pekBulan=''; viewPekerjaan();};
