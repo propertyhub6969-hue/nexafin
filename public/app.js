@@ -2412,7 +2412,9 @@ async function viewPph21(){
   const meta=await pph21Meta();
   const {clients}=await loadKlienStaff();
   if(!clients.length){ content().innerHTML='<div class="card"><div class="bd"><p class="muted">Belum ada klien. Tambah klien dulu di menu <b>Klien</b>.</p></div></div>'; return; }
-  if(!State.pphClient||!clients.some(c=>c.id===State.pphClient)) State.pphClient=clients[0].id;
+  const bookClient=(State.bookId&&clients.some(c=>c.id===State.bookId))?State.bookId:null;
+  if(bookClient) State.pphClient=bookClient;                                      // ikut klien yg sedang dibuka (pemilih buku)
+  else if(!State.pphClient||!clients.some(c=>c.id===State.pphClient)) State.pphClient=clients[0].id;
   const now=new Date();
   if(!State.pphYear) State.pphYear=String(now.getFullYear());
   if(!State.pphMonth) State.pphMonth=String(now.getMonth()+1);
@@ -2437,7 +2439,7 @@ async function viewPph21(){
       </table></div></div></div>
     <p class="muted" style="font-size:12px">TER dihitung <b>otomatis</b> dari PTKP + bruto (PP 58/2023). Bisa diubah manual (kolom jadi <b>kuning</b> = override); klik <b>↺</b> buat balik ke TER otomatis. <b>Export</b> → file XML siap impor Coretax. NPWP klien = NPWP Pemotong (isi lewat menu Klien → Ubah).</p>`;
   const g=id=>document.getElementById(id);
-  g('pphKlien').onchange=e=>{State.pphClient=e.target.value;viewPph21();};
+  g('pphKlien').onchange=e=>{State.pphClient=e.target.value;loadRows();};
   g('pphYear').onchange=e=>{State.pphYear=e.target.value;loadRows();};
   g('pphMonth').onchange=e=>{State.pphMonth=e.target.value;loadRows();};
   g('pphKelola').onclick=()=>modalKaryawan(State.pphClient,loadRows,(clients.find(c=>c.id===State.pphClient)||{}).nama||'');
