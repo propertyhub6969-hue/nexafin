@@ -205,6 +205,9 @@ const MENU=[
   {grp:'Pengaturan'},
   {v:'akun',t:'Bagan Akun',e:'🗂️'},
 ];
+// Ikon menu sidebar (Material Symbols) — fallback ke emoji bila belum dipetakan
+const NAV_ICONS={dashboard:'dashboard',transaksi:'swap_horiz',jurnal:'edit_note',bukubesar:'menu_book',neracasaldo:'balance',aset:'inventory_2',labarugi:'trending_up',neraca:'account_balance',ekuitas:'stacked_line_chart',aruskas:'payments',calk:'description',impor:'cloud_upload',insight:'lightbulb',suratdjp:'mail',anggaran:'track_changes',varians:'query_stats',rekonsiliasi:'published_with_changes',akun:'account_tree',konsultan:'space_dashboard',kotakmasuk:'inbox',pengingat:'notifications',klien:'apartment',penugasan:'assignment_ind',pekerjaan:'task_alt',pph21:'calculate',arsip:'folder_open',invoice:'receipt_long',tim:'groups',admin:'manage_accounts',libur:'calendar_month',setelanai:'smart_toy',pengaturan:'settings'};
+function navIcon(v,emoji){ return NAV_ICONS[v]?`<span class="material-symbols-outlined">${NAV_ICONS[v]}</span>`:(emoji||''); }
 // View akuntansi yang terikat pada satu buku (klien/firma)
 const BOOK_VIEWS=new Set(['dashboard','transaksi','jurnal','bukubesar','neracasaldo','labarugi','neraca','ekuitas','aruskas','calk','impor','insight','suratdjp','anggaran','varians','rekonsiliasi','aset','akun']);
 function bookSwitcherHTML(){
@@ -271,7 +274,7 @@ function renderApp(){
   if(grpAktif) State.navOpen[grpAktif]=true;   // grup berisi menu aktif selalu terbuka
   const nav=seksi.map(s=>{
     const open=State.navOpen[s.grp]!==false && (State.navOpen[s.grp]||s.grp===grpAktif);
-    const items=s.items.map(m=>`<a data-v="${m.v}" class="${State.view===m.v?'aktif':''}"><span class="em">${m.e}</span><span class="t">${m.t}</span></a>`).join('');
+    const items=s.items.map(m=>`<a data-v="${m.v}" class="${State.view===m.v?'aktif':''}"><span class="em">${navIcon(m.v,m.e)}</span><span class="t">${m.t}</span></a>`).join('');
     return `<div class="nav-sec">
       <button class="grp grp-btn ${open?'buka':''}" data-grp="${esc(s.grp)}"><span>${esc(s.grp)}</span><span class="grp-caret">▾</span></button>
       <div class="nav-body" ${open?'':'hidden'}>${items}</div></div>`;
