@@ -251,6 +251,7 @@ function renderApp(){
     menu.push({v:'klien',t:'Klien',e:'🏢'});
     if(u.role==='admin'||u.role==='user'||(State.meta&&State.meta.isPJ)) menu.push({v:'penugasan',t:'Penugasan',e:'🧩'});
     menu.push({v:'pekerjaan',t:'Pekerjaan / SPT',e:'✅'});
+    menu.push({v:'pph21',t:'PPh 21 (Coretax)',e:'🧮'});
     menu.push({v:'arsip',t:'Arsip Dokumen',e:'🗄️'});
     const isAdminRole=u.role==='admin'||u.role==='user';
     const canInv=isAdminRole||(u.perms&&u.perms.invoice);
@@ -332,7 +333,7 @@ async function routeView(){
       labarugi:viewLabaRugi,neraca:viewNeraca,ekuitas:viewPerubahanEkuitas,aruskas:viewArusKas,calk:viewCALK,anggaran:viewAnggaran,varians:viewVarians,
       rekonsiliasi:viewRekonsiliasi,aset:viewAsetTetap,akun:viewAkun,admin:viewAdmin,pengaturan:viewPengaturan,
       impor:viewImpor,insight:viewInsight,suratdjp:viewSuratDJP,transaksi:viewTransaksi,setelanai:viewSetelanAI,libur:viewLibur,
-      konsultan:viewKonsultan,klien:viewKlien,penugasan:viewPenugasan,pekerjaan:viewPekerjaan,invoice:viewInvoiceKlien,arsip:viewArsip,tim:viewTim,pengingat:viewPengingat,kotakmasuk:viewKotakMasuk};
+      konsultan:viewKonsultan,klien:viewKlien,penugasan:viewPenugasan,pekerjaan:viewPekerjaan,invoice:viewInvoiceKlien,arsip:viewArsip,tim:viewTim,pengingat:viewPengingat,kotakmasuk:viewKotakMasuk,pph21:viewPph21};
     const fn=map[State.view]||viewDashboard;
     await fn();
   }catch(err){
@@ -2397,6 +2398,135 @@ async function viewPenugasan(){
 }
 
 /* ============ PEKERJAAN / PROGRES SPT ============ */
+/* ============ PPh 21 (per klien) — input bruto, TER otomatis, export Coretax ============ */
+let _pph21meta=null;
+async function pph21Meta(){ if(!_pph21meta) _pph21meta=await api('GET','/api/pph21/meta'); return _pph21meta; }
+function terCatFE(ptkp,meta){ const s=String(ptkp||'').toUpperCase().trim(); if(meta.catA.indexOf(s)>=0)return 'A'; if(meta.catB.indexOf(s)>=0)return 'B'; return 'C'; }
+function terRateFE(ptkp,gross,meta){ const b=Number(gross)||0; const c=terCatFE(ptkp,meta); const tbl=c==='A'?meta.terA:c==='B'?meta.terB:meta.terC; for(let i=0;i<tbl.length;i++){ if(b<=tbl[i][0]) return tbl[i][1]; } return 34; }
+const BLN_ID=['','Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+
+async function viewPph21(){
+  const meta=await pph21Meta();
+  const {clients}=await loadKlienStaff();
+  if(!clients.length){ content().innerHTML='<div class="card"><div class="bd"><p class="muted">Belum ada klien. Tambah klien dulu di menu <b>Klien</b>.</p></div></div>'; return; }
+  if(!State.pphClient||!clients.some(c=>c.id===State.pphClient)) State.pphClient=clients[0].id;
+  const now=new Date();
+  if(!State.pphYear) State.pphYear=String(now.getFullYear());
+  if(!State.pphMonth) State.pphMonth=String(now.getMonth()+1);
+  const clientOpts=clients.map(c=>`<option value="${c.id}" ${c.id===State.pphClient?'selected':''}>${esc(c.nama)}</option>`).join('');
+  let yearOpts=''; for(let y=now.getFullYear()+1;y>=now.getFullYear()-3;y--) yearOpts+=`<option value="${y}" ${String(y)===String(State.pphYear)?'selected':''}>${y}</option>`;
+  const monOpts=[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>`<option value="${m}" ${String(m)===String(State.pphMonth)?'selected':''}>${BLN_ID[m]}</option>`).join('');
+  content().innerHTML=`
+    <div class="toolbar">
+      <div class="field" style="min-width:220px"><label>Klien (Pemotong)</label><select id="pphKlien">${clientOpts}</select></div>
+      <div class="field"><label>Tahun</label><select id="pphYear">${yearOpts}</select></div>
+      <div class="field"><label>Masa (Bulan)</label><select id="pphMonth">${monOpts}</select></div>
+      <div class="spacer"></div>
+      <button class="btn abu" id="pphKelola">👥 Kelola Karyawan</button>
+    </div>
+    <div class="card"><div class="hd"><h3>PPh 21 — <span id="pphMasaLbl"></span></h3>
+      <div class="flex"><button class="btn abu kecil" id="pphSimpan">💾 Simpan</button><button class="btn hijau kecil" id="pphExport">⬇️ Export XML Coretax</button></div></div>
+      <div class="bd nopad"><div id="pphMsg" class="mt" style="padding:0 16px"></div>
+      <div class="tbl-wrap"><table class="tbl">
+        <thead><tr><th>Nama</th><th>NIK/NPWP</th><th>PTKP</th><th>Kode Objek</th><th class="num">Bruto (Rp)</th><th class="num">TER %</th><th class="num">PPh 21 (Rp)</th></tr></thead>
+        <tbody id="pphBody"><tr><td colspan="7" class="muted" style="text-align:center;padding:16px">Memuat…</td></tr></tbody>
+        <tfoot><tr class="total"><td colspan="4">TOTAL</td><td class="num" id="pphTotBruto">0</td><td></td><td class="num" id="pphTotPph">0</td></tr></tfoot>
+      </table></div></div></div>
+    <p class="muted" style="font-size:12px">TER dihitung otomatis dari PTKP + bruto (PP 58/2023; bisa diubah manual di kolom TER %). <b>Export</b> menghasilkan file XML siap impor ke Coretax. NPWP klien = NPWP Pemotong (isi lewat menu Klien → Ubah).</p>`;
+  const g=id=>document.getElementById(id);
+  g('pphKlien').onchange=e=>{State.pphClient=e.target.value;viewPph21();};
+  g('pphYear').onchange=e=>{State.pphYear=e.target.value;loadRows();};
+  g('pphMonth').onchange=e=>{State.pphMonth=e.target.value;loadRows();};
+  g('pphKelola').onclick=()=>modalKaryawan(State.pphClient,loadRows);
+  g('pphSimpan').onclick=()=>savePph21(true);
+  g('pphExport').onclick=exportPph21;
+  async function loadRows(){
+    g('pphMasaLbl').textContent=BLN_ID[+State.pphMonth]+' '+State.pphYear;
+    const r=await api('GET','/api/pph21/masa?'+new URLSearchParams({clientId:State.pphClient,year:State.pphYear,month:State.pphMonth}));
+    State.pphEmps=r.employees||[]; renderRows();
+  }
+  function renderRows(){
+    const emps=State.pphEmps||[];
+    if(!emps.length){ g('pphBody').innerHTML='<tr><td colspan="7" class="muted" style="text-align:center;padding:16px">Belum ada karyawan. Klik "👥 Kelola Karyawan" untuk menambah.</td></tr>'; recalc(); return; }
+    g('pphBody').innerHTML=emps.map((e,i)=>{
+      const auto=terRateFE(e.ptkp,e.gross,meta);
+      const rate=(e.rate===''||e.rate===undefined)?auto:e.rate;
+      const over=!(e.rate===''||e.rate===undefined);
+      return `<tr>
+        <td><b>${esc(e.nama)}</b></td><td class="kode">${esc(e.nik)}</td><td>${esc(e.ptkp)}</td><td class="kode">${esc(e.objectCode)}</td>
+        <td class="num"><input type="number" class="pph-bruto" data-i="${i}" value="${Math.round(e.gross)||0}" style="width:120px;text-align:right;padding:5px 7px;border:1px solid var(--garis);border-radius:6px"></td>
+        <td class="num"><input type="number" step="0.01" class="pph-rate" data-i="${i}" data-over="${over?1:''}" value="${rate}" style="width:66px;text-align:right;padding:5px 7px;border:1px solid var(--garis);border-radius:6px"></td>
+        <td class="num pph-pph" data-i="${i}">0</td></tr>`;
+    }).join('');
+    content().querySelectorAll('.pph-bruto').forEach(inp=>inp.oninput=()=>{ const i=+inp.dataset.i; const rt=content().querySelector('.pph-rate[data-i="'+i+'"]'); if(rt&&!rt.dataset.over){ rt.value=terRateFE(emps[i].ptkp,inp.value,meta); } recalc(); });
+    content().querySelectorAll('.pph-rate').forEach(inp=>inp.oninput=()=>{ inp.dataset.over='1'; recalc(); });
+    recalc();
+  }
+  function recalc(){
+    let tb=0,tp=0;
+    (State.pphEmps||[]).forEach((e,i)=>{ const brEl=content().querySelector('.pph-bruto[data-i="'+i+'"]'); const rtEl=content().querySelector('.pph-rate[data-i="'+i+'"]'); const br=Number(brEl?brEl.value:0)||0; const rt=Number(rtEl?rtEl.value:0)||0; const pph=Math.round(br*rt/100); const cell=content().querySelector('.pph-pph[data-i="'+i+'"]'); if(cell) cell.textContent=fmtNum(pph); tb+=br; tp+=pph; });
+    if(g('pphTotBruto')) g('pphTotBruto').textContent=fmtNum(tb);
+    if(g('pphTotPph')) g('pphTotPph').textContent=fmtNum(tp);
+  }
+  function collect(){
+    return (State.pphEmps||[]).map((e,i)=>{ const brEl=content().querySelector('.pph-bruto[data-i="'+i+'"]'); const rtEl=content().querySelector('.pph-rate[data-i="'+i+'"]'); const gross=Number(brEl?brEl.value:0)||0; const over=rtEl&&rtEl.dataset.over; return {empId:e.id,gross,rate:over?(Number(rtEl.value)||0):''}; });
+  }
+  async function savePph21(flashIt){
+    try{ await api('POST','/api/pph21/masa',{clientId:State.pphClient,year:State.pphYear,month:State.pphMonth,entries:collect()}); if(flashIt) g('pphMsg').innerHTML='<div class="pesan ok">✓ Tersimpan.</div>'; return true; }
+    catch(err){ g('pphMsg').innerHTML='<div class="pesan err">'+esc(err.message)+'</div>'; return false; }
+  }
+  async function exportPph21(){
+    if(!(await savePph21(false))) return;
+    try{
+      const r=await api('GET','/api/pph21/export?'+new URLSearchParams({clientId:State.pphClient,year:State.pphYear,month:State.pphMonth}));
+      const blob=new Blob([r.xml],{type:'application/xml'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=r.filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+      g('pphMsg').innerHTML='<div class="pesan ok">✓ File XML diunduh ('+r.count+' karyawan). Tinggal impor ke Coretax.</div>';
+    }catch(err){ g('pphMsg').innerHTML='<div class="pesan err">'+esc(err.message)+'</div>'; }
+  }
+  loadRows();
+}
+
+function modalKaryawan(clientId,onClose){
+  let emps=[];
+  const wrap=document.createElement('div'); wrap.className='modal-bg';
+  wrap.innerHTML=`<div class="modal" style="max-width:660px"><div class="hd"><h3>Kelola Karyawan PPh 21</h3><button class="x">&times;</button></div>
+    <div class="bd"><div id="kyMsg"></div>
+      <div class="card" style="margin-bottom:14px"><div class="bd">
+        <div class="flex"><div class="field" style="flex:2"><label>Nama</label><input id="kyNama"></div><div class="field" style="flex:2"><label>NIK / NPWP</label><input id="kyNik"></div></div>
+        <div class="flex"><div class="field" style="flex:2"><label>Jabatan</label><input id="kyPos" placeholder="KARYAWAN"></div>
+          <div class="field" style="flex:1"><label>PTKP</label><select id="kyPtkp"></select></div>
+          <div class="field" style="flex:2"><label>Kode Objek</label><select id="kyObj"></select></div></div>
+        <input type="hidden" id="kyEdit">
+        <button class="btn hijau kecil" id="kySave">+ Tambah / Simpan</button> <button class="btn abu kecil" id="kyReset" style="display:none">Batal edit</button>
+      </div></div>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Nama</th><th>NIK</th><th>PTKP</th><th>Kode Objek</th><th></th></tr></thead><tbody id="kyBody"></tbody></table></div>
+    </div></div>`;
+  document.body.appendChild(wrap);
+  const g=id=>document.getElementById(id); const close=()=>{wrap.remove(); if(onClose)onClose();};
+  wrap.querySelector('.x').onclick=close; wrap.onclick=e=>{if(e.target===wrap)close();};
+  (async()=>{
+    const meta=await pph21Meta();
+    g('kyPtkp').innerHTML=meta.ptkpList.map(p=>`<option>${p}</option>`).join('');
+    g('kyObj').innerHTML=meta.objectCodes.map(o=>`<option value="${o.code}">${o.code} — ${esc(o.name)}</option>`).join('');
+    await reload();
+  })();
+  async function reload(){
+    const r=await api('GET','/api/pph21/employees?'+new URLSearchParams({clientId})); emps=r.employees||[];
+    g('kyBody').innerHTML=emps.map((e,i)=>`<tr><td><b>${esc(e.nama)}</b></td><td class="kode">${esc(e.nik)}</td><td>${esc(e.ptkp)}</td><td class="kode">${esc(e.objectCode)}</td>
+      <td class="right"><button class="btn abu kecil" data-ed="${i}">Ubah</button> <button class="btn abu kecil" data-del="${e.id}">Hapus</button></td></tr>`).join('')||'<tr><td colspan="5" class="muted" style="text-align:center;padding:14px">Belum ada karyawan.</td></tr>';
+    g('kyBody').querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{ if(!confirm('Hapus karyawan ini?'))return; try{await api('DELETE','/api/pph21/employees/'+b.dataset.del); reload();}catch(err){g('kyMsg').innerHTML='<div class="pesan err">'+esc(err.message)+'</div>';} });
+    g('kyBody').querySelectorAll('[data-ed]').forEach(b=>b.onclick=()=>{ const e=emps[+b.dataset.ed]; g('kyEdit').value=e.id; g('kyNama').value=e.nama; g('kyNik').value=e.nik; g('kyPos').value=e.position||''; g('kyPtkp').value=e.ptkp; g('kyObj').value=e.objectCode; g('kyReset').style.display=''; });
+  }
+  g('kyReset').onclick=()=>{ ['kyEdit','kyNama','kyNik','kyPos'].forEach(id=>g(id).value=''); g('kyReset').style.display='none'; };
+  g('kySave').onclick=async()=>{
+    const body={clientId,nama:g('kyNama').value.trim(),nik:g('kyNik').value.trim(),position:g('kyPos').value.trim(),ptkp:g('kyPtkp').value,objectCode:g('kyObj').value};
+    if(!body.nama||!body.nik){ g('kyMsg').innerHTML='<div class="pesan err">Nama & NIK wajib diisi.</div>'; return; }
+    try{ const id=g('kyEdit').value; if(id) await api('PUT','/api/pph21/employees/'+id,body); else await api('POST','/api/pph21/employees',body);
+      ['kyEdit','kyNama','kyNik','kyPos'].forEach(x=>g(x).value=''); g('kyReset').style.display='none'; g('kyMsg').innerHTML=''; reload();
+    }catch(err){ g('kyMsg').innerHTML='<div class="pesan err">'+esc(err.message)+'</div>'; }
+  };
+}
+
 async function viewPekerjaan(){
   const meta=await ensureMeta();
   const {clients,staff}=await loadKlienStaff();
