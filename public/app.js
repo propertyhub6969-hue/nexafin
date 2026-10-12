@@ -2430,7 +2430,7 @@ async function viewPph21(){
       <button class="btn abu" id="pphKelola">👥 Kelola Karyawan</button>
     </div>
     <div class="card"><div class="hd"><h3>PPh 21 — <span id="pphCtx">…</span></h3>
-      <div class="flex"><button class="btn abu kecil" id="pphSimpan">💾 Simpan</button><button class="btn hijau kecil" id="pphExport">⬇️ Export XML Coretax</button></div></div>
+      <div class="flex"><button class="btn abu kecil" id="pphSimpan">💾 Simpan</button><button class="btn abu kecil" id="pphExcel">⬇️ Excel</button><button class="btn hijau kecil" id="pphExport">⬇️ XML Coretax</button></div></div>
       <div class="bd nopad"><div id="pphMsg" class="mt" style="padding:0 16px"></div>
       <div class="tbl-wrap"><table class="tbl">
         <thead><tr><th>Nama</th><th>NIK/NPWP</th><th>PTKP</th><th>Kode Objek</th><th class="num">Bruto (Rp)</th><th class="num">TER %</th><th class="num">PPh 21 (Rp)</th></tr></thead>
@@ -2445,6 +2445,7 @@ async function viewPph21(){
   g('pphKelola').onclick=()=>modalKaryawan(State.pphClient,loadRows,(clients.find(c=>c.id===State.pphClient)||{}).nama||'');
   g('pphSimpan').onclick=()=>savePph21(true);
   g('pphExport').onclick=exportPph21;
+  g('pphExcel').onclick=exportExcel;
   async function loadRows(){
     const r=await api('GET','/api/pph21/masa?'+new URLSearchParams({clientId:State.pphClient,year:State.pphYear,month:State.pphMonth}));
     const cn=(r.client&&r.client.nama)?r.client.nama:'';
@@ -2488,6 +2489,16 @@ async function viewPph21(){
       const r=await api('GET','/api/pph21/export?'+new URLSearchParams({clientId:State.pphClient,year:State.pphYear,month:State.pphMonth}));
       const blob=new Blob([r.xml],{type:'application/xml'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=r.filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),1000);
       g('pphMsg').innerHTML='<div class="pesan ok">✓ File XML diunduh ('+r.count+' karyawan). Tinggal impor ke Coretax.</div>';
+    }catch(err){ g('pphMsg').innerHTML='<div class="pesan err">'+esc(err.message)+'</div>'; }
+  }
+  async function exportExcel(){
+    if(!(await savePph21(false))) return;
+    try{
+      const r=await api('GET','/api/pph21/export-xlsx?'+new URLSearchParams({clientId:State.pphClient,year:State.pphYear,month:State.pphMonth}));
+      const bin=atob(r.xlsx); const arr=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
+      const blob=new Blob([arr],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+      const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=r.filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+      g('pphMsg').innerHTML='<div class="pesan ok">✓ File Excel diunduh ('+r.count+' karyawan).</div>';
     }catch(err){ g('pphMsg').innerHTML='<div class="pesan err">'+esc(err.message)+'</div>'; }
   }
   loadRows();
