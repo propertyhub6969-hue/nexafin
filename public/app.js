@@ -2432,7 +2432,7 @@ async function viewPph21(){
         <tbody id="pphBody"><tr><td colspan="7" class="muted" style="text-align:center;padding:16px">Memuat…</td></tr></tbody>
         <tfoot><tr class="total"><td colspan="4">TOTAL</td><td class="num" id="pphTotBruto">0</td><td></td><td class="num" id="pphTotPph">0</td></tr></tfoot>
       </table></div></div></div>
-    <p class="muted" style="font-size:12px">TER dihitung otomatis dari PTKP + bruto (PP 58/2023; bisa diubah manual di kolom TER %). <b>Export</b> menghasilkan file XML siap impor ke Coretax. NPWP klien = NPWP Pemotong (isi lewat menu Klien → Ubah).</p>`;
+    <p class="muted" style="font-size:12px">TER dihitung <b>otomatis</b> dari PTKP + bruto (PP 58/2023). Bisa diubah manual (kolom jadi <b>kuning</b> = override); klik <b>↺</b> buat balik ke TER otomatis. <b>Export</b> → file XML siap impor Coretax. NPWP klien = NPWP Pemotong (isi lewat menu Klien → Ubah).</p>`;
   const g=id=>document.getElementById(id);
   g('pphKlien').onchange=e=>{State.pphClient=e.target.value;viewPph21();};
   g('pphYear').onchange=e=>{State.pphYear=e.target.value;loadRows();};
@@ -2455,11 +2455,12 @@ async function viewPph21(){
       return `<tr>
         <td><b>${esc(e.nama)}</b></td><td class="kode">${esc(e.nik)}</td><td>${esc(e.ptkp)}</td><td class="kode">${esc(e.objectCode)}</td>
         <td class="num"><input type="number" class="pph-bruto" data-i="${i}" value="${Math.round(e.gross)||0}" style="width:120px;text-align:right;padding:5px 7px;border:1px solid var(--garis);border-radius:6px"></td>
-        <td class="num"><input type="number" step="0.01" class="pph-rate" data-i="${i}" data-over="${over?1:''}" value="${rate}" style="width:66px;text-align:right;padding:5px 7px;border:1px solid var(--garis);border-radius:6px"></td>
+        <td class="num" style="white-space:nowrap"><input type="number" step="0.01" class="pph-rate" data-i="${i}" data-over="${over?1:''}" value="${rate}" title="Default = TER otomatis (PTKP+bruto). Bisa diubah manual." style="width:60px;text-align:right;padding:5px 6px;border:1px solid ${over?'#d69e2e':'var(--garis)'};border-radius:6px;background:${over?'#fffaf0':'#fff'}"><button type="button" class="pph-auto" data-i="${i}" title="Kembalikan ke TER otomatis" style="border:none;background:none;cursor:pointer;color:var(--teks3);font-size:14px;padding:0 0 0 3px">↺</button></td>
         <td class="num pph-pph" data-i="${i}">0</td></tr>`;
     }).join('');
     content().querySelectorAll('.pph-bruto').forEach(inp=>inp.oninput=()=>{ const i=+inp.dataset.i; const rt=content().querySelector('.pph-rate[data-i="'+i+'"]'); if(rt&&!rt.dataset.over){ rt.value=terRateFE(emps[i].ptkp,inp.value,meta); } recalc(); });
-    content().querySelectorAll('.pph-rate').forEach(inp=>inp.oninput=()=>{ inp.dataset.over='1'; recalc(); });
+    content().querySelectorAll('.pph-rate').forEach(inp=>inp.oninput=()=>{ inp.dataset.over='1'; inp.style.background='#fffaf0'; inp.style.borderColor='#d69e2e'; recalc(); });
+    content().querySelectorAll('.pph-auto').forEach(b=>b.onclick=()=>{ const i=+b.dataset.i; const rt=content().querySelector('.pph-rate[data-i="'+i+'"]'); const br=content().querySelector('.pph-bruto[data-i="'+i+'"]'); if(rt){ rt.dataset.over=''; rt.value=terRateFE(emps[i].ptkp,br?br.value:0,meta); rt.style.background='#fff'; rt.style.borderColor='var(--garis)'; } recalc(); });
     recalc();
   }
   function recalc(){
