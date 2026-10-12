@@ -2427,7 +2427,7 @@ async function viewPph21(){
       <div class="spacer"></div>
       <button class="btn abu" id="pphKelola">👥 Kelola Karyawan</button>
     </div>
-    <div class="card"><div class="hd"><h3>PPh 21 — <span id="pphMasaLbl"></span></h3>
+    <div class="card"><div class="hd"><h3>PPh 21 — <span id="pphCtx">…</span></h3>
       <div class="flex"><button class="btn abu kecil" id="pphSimpan">💾 Simpan</button><button class="btn hijau kecil" id="pphExport">⬇️ Export XML Coretax</button></div></div>
       <div class="bd nopad"><div id="pphMsg" class="mt" style="padding:0 16px"></div>
       <div class="tbl-wrap"><table class="tbl">
@@ -2440,12 +2440,13 @@ async function viewPph21(){
   g('pphKlien').onchange=e=>{State.pphClient=e.target.value;viewPph21();};
   g('pphYear').onchange=e=>{State.pphYear=e.target.value;loadRows();};
   g('pphMonth').onchange=e=>{State.pphMonth=e.target.value;loadRows();};
-  g('pphKelola').onclick=()=>modalKaryawan(State.pphClient,loadRows);
+  g('pphKelola').onclick=()=>modalKaryawan(State.pphClient,loadRows,(clients.find(c=>c.id===State.pphClient)||{}).nama||'');
   g('pphSimpan').onclick=()=>savePph21(true);
   g('pphExport').onclick=exportPph21;
   async function loadRows(){
-    g('pphMasaLbl').textContent=BLN_ID[+State.pphMonth]+' '+State.pphYear;
     const r=await api('GET','/api/pph21/masa?'+new URLSearchParams({clientId:State.pphClient,year:State.pphYear,month:State.pphMonth}));
+    const cn=(r.client&&r.client.nama)?r.client.nama:'';
+    g('pphCtx').textContent=(cn?cn+' · ':'')+BLN_ID[+State.pphMonth]+' '+State.pphYear;
     State.pphEmps=r.employees||[]; renderRows();
   }
   function renderRows(){
@@ -2490,11 +2491,11 @@ async function viewPph21(){
   loadRows();
 }
 
-function modalKaryawan(clientId,onClose){
+function modalKaryawan(clientId,onClose,clientName){
   let emps=[];
   const wrap=document.createElement('div'); wrap.className='modal-bg';
-  wrap.innerHTML=`<div class="modal" style="max-width:660px"><div class="hd"><h3>Kelola Karyawan PPh 21</h3><button class="x">&times;</button></div>
-    <div class="bd"><div id="kyMsg"></div>
+  wrap.innerHTML=`<div class="modal" style="max-width:660px"><div class="hd"><h3>Karyawan PPh 21 — ${esc(clientName||'klien')}</h3><button class="x">&times;</button></div>
+    <div class="bd"><div class="pesan" style="background:#e6f3ff;color:#1a4971;margin-bottom:12px;font-size:12.5px">👥 Daftar karyawan ini <b>khusus untuk klien "${esc(clientName||'')}"</b>. Tiap klien punya daftar karyawannya sendiri.</div><div id="kyMsg"></div>
       <div class="card" style="margin-bottom:14px"><div class="bd">
         <div class="flex"><div class="field" style="flex:2"><label>Nama</label><input id="kyNama"></div><div class="field" style="flex:2"><label>NIK / NPWP</label><input id="kyNik"></div></div>
         <div class="flex"><div class="field" style="flex:2"><label>Jabatan</label><input id="kyPos" placeholder="KARYAWAN"></div>
