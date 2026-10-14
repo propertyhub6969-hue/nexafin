@@ -37,6 +37,25 @@ function fmtNum(n){
 }
 function fmtRp(n){ return 'Rp '+fmtNum(n); }
 function clsNum(n){ return (Number(n)<0)?'neg':''; }
+// ---- Input nominal dengan pemisah ribuan (titik) ----
+function fmtTribu(v){ const s=String(v==null?'':v).replace(/\D/g,''); return s?Number(s).toLocaleString('id-ID'):''; }
+function numStr(s){ return Number(String(s==null?'':s).replace(/\D/g,''))||0; }
+function numVal(el){ return el?numStr(el.value):0; }
+// Ubah sebuah input jadi input angka berformat ribuan (ketik → "1.000.000"); oninput callback opsional.
+function bindRibu(el, cb){
+  if(!el) return;
+  el.type='text'; el.setAttribute('inputmode','numeric');
+  if(el.value!=='') el.value=fmtTribu(el.value);
+  el.addEventListener('input',()=>{
+    const sel=el.selectionStart||0, left=el.value.slice(0,sel).replace(/\D/g,'').length;
+    el.value=fmtTribu(el.value);
+    let p=0,c=0; while(p<el.value.length&&c<left){ if(el.value[p]>='0'&&el.value[p]<='9')c++; p++; }
+    try{ el.setSelectionRange(p,p); }catch(e){}
+    if(cb) cb();
+  });
+}
+// Auto-format input nominal ber-class "rp" (delegasi global; untuk input yang tak butuh callback khusus)
+document.addEventListener('input',function(e){ const el=e.target; if(el&&el.tagName==='INPUT'&&el.classList&&el.classList.contains('rp')){ const sel=el.selectionStart||0,left=el.value.slice(0,sel).replace(/\D/g,'').length; el.value=fmtTribu(el.value); let p=0,c=0; while(p<el.value.length&&c<left){ if(el.value[p]>='0'&&el.value[p]<='9')c++; p++; } try{el.setSelectionRange(p,p);}catch(_){} } });
 
 /* ---------- API ---------- */
 async function api(method, path, body){
@@ -700,17 +719,17 @@ function modalJurnal(existing){
     const row=document.createElement('div'); row.className='jline';
     const sel=code?opts.replace(`value="${code}"`,`value="${code}" selected`):opts;
     row.innerHTML=`<select class="ln-acc"><option value="">— pilih akun —</option>${sel}</select>
-      <input class="ln-deb" type="number" min="0" step="any" placeholder="Debit" value="${debit?debit:''}">
-      <input class="ln-cred" type="number" min="0" step="any" placeholder="Kredit" value="${credit?credit:''}">
+      <input class="ln-deb" type="text" inputmode="numeric" placeholder="Debit" value="${debit?fmtTribu(debit):''}">
+      <input class="ln-cred" type="text" inputmode="numeric" placeholder="Kredit" value="${credit?fmtTribu(credit):''}">
       <input class="ln-memo" placeholder="Memo (opsional)" value="${memo?esc(memo):''}">
       <button class="del" title="Hapus baris">&times;</button>`;
     row.querySelector('.del').onclick=()=>{row.remove();hitung();};
-    row.querySelectorAll('input').forEach(i=>i.oninput=hitung);
+    bindRibu(row.querySelector('.ln-deb'),hitung); bindRibu(row.querySelector('.ln-cred'),hitung); row.querySelector('.ln-memo').oninput=hitung;
     linesBox.appendChild(row);
   }
   function hitung(){
     let d=0,k=0;
-    linesBox.querySelectorAll('.jline').forEach(r=>{ d+=Number(r.querySelector('.ln-deb').value)||0; k+=Number(r.querySelector('.ln-cred').value)||0; });
+    linesBox.querySelectorAll('.jline').forEach(r=>{ d+=numVal(r.querySelector('.ln-deb')); k+=numVal(r.querySelector('.ln-cred')); });
     const bal=Math.abs(d-k)<0.005;
     wrap.querySelector('#jBal').innerHTML=`Total Debit: <b>${fmtNum(d)}</b> — Total Kredit: <b>${fmtNum(k)}</b> ${bal?'<span class="chip baik">Seimbang</span>':'<span class="chip buruk">Selisih '+fmtNum(d-k)+'</span>'}`;
   }
@@ -746,7 +765,7 @@ function modalJurnal(existing){
   wrap.querySelector('.x').onclick=close; wrap.querySelector('#jBatal').onclick=close;
   wrap.onclick=(e)=>{ if(e.target===wrap) close(); };
   wrap.querySelector('#jSimpan').onclick=async()=>{
-    const lines=[...linesBox.querySelectorAll('.jline')].map(r=>({accountCode:r.querySelector('.ln-acc').value,debit:Number(r.querySelector('.ln-deb').value)||0,credit:Number(r.querySelector('.ln-cred').value)||0,memo:r.querySelector('.ln-memo').value}));
+    const lines=[...linesBox.querySelectorAll('.jline')].map(r=>({accountCode:r.querySelector('.ln-acc').value,debit:numVal(r.querySelector('.ln-deb')),credit:numVal(r.querySelector('.ln-cred')),memo:r.querySelector('.ln-memo').value}));
     const body={date:wrap.querySelector('#jDate').value,description:wrap.querySelector('#jDesc').value,lines};
     if(!isFirmaBook()){ if(pendingFiles.length) body.files=pendingFiles; if(detach.length) body.detachDocIds=detach; }
     const btn=wrap.querySelector('#jSimpan'); btn.disabled=true; btn.textContent='Menyimpan…';
@@ -1137,7 +1156,7 @@ function modalLepasAset(a){
       <p class="muted" style="margin-top:0">Nilai buku komersial terkini: <b>${fmtNum(a.nilaiBukuKomersial)}</b> (harga ${fmtNum(a.harga)} − akum ${fmtNum(a.akumKomersial)}). <b>Laba/rugi</b> = harga jual − nilai buku, dihitung tepat saat simpan (termasuk penyusutan s/d tanggal pelepasan). Jurnal pelepasan diposting otomatis & penyusutan dihentikan.</p>
       <div class="flex">
         <div class="field" style="flex:1"><label>Tanggal Pelepasan</label><input type="date" id="lpTgl" value="${todayStr()}"></div>
-        <div class="field" style="flex:1"><label>Harga Jual (Rp) <span class="muted">— 0 jika dibuang</span></label><input type="number" id="lpHarga" value="0" min="0"></div>
+        <div class="field" style="flex:1"><label>Harga Jual (Rp) <span class="muted">— 0 jika dibuang</span></label><input type="text" inputmode="numeric" class="rp" id="lpHarga" value="0"></div>
       </div>
       <div class="field"><label>Akun Kas/Bank penerima <span class="muted">(wajib bila dijual)</span></label><select id="lpKas"><option value="">— pilih —</option>${opt(kasOpts)}</select></div>
       <div class="field"><label>Akun Laba/Rugi Pelepasan Aset <span class="muted">(pendapatan/beban lain)</span></label><select id="lpLR"><option value="">— pilih —</option>${opt(accs)}</select></div>
@@ -1148,7 +1167,7 @@ function modalLepasAset(a){
   wrap.querySelector('.x').onclick=close; wrap.querySelector('#lpBatal').onclick=close; wrap.onclick=(e)=>{if(e.target===wrap)close();};
   wrap.querySelector('#lpSimpan').onclick=async()=>{
     const g=id=>wrap.querySelector('#'+id).value;
-    const body={tanggal:g('lpTgl'),hargaJual:Number(g('lpHarga'))||0,akunKas:g('lpKas')||undefined,akunLabaRugi:g('lpLR')||undefined};
+    const body={tanggal:g('lpTgl'),hargaJual:numStr(g('lpHarga')),akunKas:g('lpKas')||undefined,akunLabaRugi:g('lpLR')||undefined};
     if(!body.tanggal){ wrap.querySelector('#lpMsg').innerHTML='<div class="pesan err">Isi tanggal pelepasan.</div>'; return; }
     try{
       const res=await api('POST',burl('/assets/'+a.id+'/dispose'),body);
@@ -1218,8 +1237,8 @@ function modalAset(a,meta){
     <div class="bd"><div id="asMsg"></div>
       <div class="field"><label>Nama Aset</label><input id="aNama" value="${a?esc(a.nama):''}" placeholder="mis. Mobil Operasional Avanza"></div>
       <div class="flex"><div class="field" style="flex:1"><label>Tanggal Perolehan</label><input type="date" id="aTgl" value="${a?esc(a.tanggalPerolehan):todayStr()}"></div>
-        <div class="field" style="flex:1"><label>Harga Perolehan (Rp)</label><input type="number" id="aHarga" value="${a?a.harga:''}"></div>
-        <div class="field" style="flex:1"><label>Nilai Residu (Rp)</label><input type="number" id="aResidu" value="${a?a.nilaiResidu:0}"></div></div>
+        <div class="field" style="flex:1"><label>Harga Perolehan (Rp)</label><input type="text" inputmode="numeric" class="rp" id="aHarga" value="${a?fmtTribu(a.harga):''}"></div>
+        <div class="field" style="flex:1"><label>Nilai Residu (Rp)</label><input type="text" inputmode="numeric" class="rp" id="aResidu" value="${a?fmtTribu(a.nilaiResidu):'0'}"></div></div>
       <div style="border-top:1px solid var(--garis);margin:8px 0;padding-top:8px"><b style="font-size:13px">Komersial (untuk laporan keuangan)</b></div>
       <div class="flex"><div class="field" style="flex:1"><label>Metode</label><select id="aMetode">${optMet}</select></div>
         <div class="field" style="flex:1"><label>Masa Manfaat (tahun)</label><input type="number" id="aMasa" value="${a?a.masaManfaat:''}"></div></div>
@@ -1237,7 +1256,7 @@ function modalAset(a,meta){
   const close=()=>wrap.remove(); wrap.querySelector('.x').onclick=close; wrap.querySelector('#aBatal').onclick=close; wrap.onclick=(e)=>{if(e.target===wrap)close();};
   wrap.querySelector('#aSimpan').onclick=async()=>{
     const body={nama:wrap.querySelector('#aNama').value,tanggalPerolehan:wrap.querySelector('#aTgl').value,
-      harga:wrap.querySelector('#aHarga').value,nilaiResidu:wrap.querySelector('#aResidu').value,
+      harga:numVal(wrap.querySelector('#aHarga')),nilaiResidu:numVal(wrap.querySelector('#aResidu')),
       metode:wrap.querySelector('#aMetode').value,masaManfaat:wrap.querySelector('#aMasa').value,
       kelompokFiskal:wrap.querySelector('#aFis').value,metodeFiskal:wrap.querySelector('#aMetFis').value,
       akunAset:wrap.querySelector('#aAkunAset').value,akunAkumulasi:wrap.querySelector('#aAkunAkum').value,akunBeban:wrap.querySelector('#aAkunBeban').value,
@@ -1348,7 +1367,7 @@ async function viewAnggaran(){
   const nominal=State.accounts.filter(a=>a.category==='PENDAPATAN'||a.category==='BEBAN');
   const rows=nominal.map(a=>{
     const b=budMap[a.code]; const tot=b?(b.amounts||[]).reduce((s,x)=>s+(Number(x)||0),0):0;
-    return `<tr><td class="kode">${esc(a.code)}</td><td>${esc(a.name)}</td><td class="num"><input type="number" data-code="${a.code}" value="${tot}" style="width:130px;text-align:right;padding:5px" ${bookRO()?'disabled':''}></td></tr>`;
+    return `<tr><td class="kode">${esc(a.code)}</td><td>${esc(a.name)}</td><td class="num"><input type="text" inputmode="numeric" class="rp" data-code="${a.code}" value="${fmtTribu(tot)}" style="width:130px;text-align:right;padding:5px" ${bookRO()?'disabled':''}></td></tr>`;
   }).join('');
   content().innerHTML=`
     <div class="toolbar"><div class="field"><label>Tahun Anggaran</label><input type="number" id="anTahun" value="${year}" style="width:110px"></div>
@@ -1361,7 +1380,7 @@ async function viewAnggaran(){
     document.getElementById('anSimpan').onclick=async()=>{
       const inputs=content().querySelectorAll('input[data-code]');
       for(const inp of inputs){
-        const per=(Number(inp.value)||0)/12;
+        const per=numVal(inp)/12;
         const amounts=new Array(12).fill(Math.round(per));
         await api('POST',burl('/budgets'),{year,accountCode:inp.dataset.code,amounts});
       }
@@ -1420,7 +1439,7 @@ async function viewRekonsiliasi(){
       <div class="flex">
         <div class="field" style="flex:1"><label>Akun Bank/Kas</label><select id="rkAcc">${opts}</select></div>
         <div class="field" style="flex:1"><label>Tanggal Rekening Koran</label><input type="date" id="rkDate" value="${todayStr()}"></div>
-        <div class="field" style="flex:1"><label>Saldo Menurut Bank (Rp)</label><input type="number" id="rkBal" placeholder="0"></div>
+        <div class="field" style="flex:1"><label>Saldo Menurut Bank (Rp)</label><input type="text" inputmode="numeric" class="rp" id="rkBal" placeholder="0"></div>
       </div>
       <div id="rkHitung" class="mt"></div>
       <div class="field"><label>Catatan</label><input id="rkNote" placeholder="mis. selisih biaya admin bank"></div>
@@ -1433,7 +1452,7 @@ async function viewRekonsiliasi(){
   if(bookRO())return;
   const hitung=async()=>{
     const code=document.getElementById('rkAcc').value; const to=document.getElementById('rkDate').value;
-    const bal=Number(document.getElementById('rkBal').value)||0;
+    const bal=numVal(document.getElementById("rkBal"));
     const led=await api('GET',burl('/reports/ledger',{code,to}));
     const gl=led.saldoAkhir; const selisih=bal-gl;
     document.getElementById('rkHitung').innerHTML=`<div class="pesan ${Math.abs(selisih)<1?'ok':'err'}">
@@ -1445,7 +1464,7 @@ async function viewRekonsiliasi(){
   document.getElementById('rkSimpan').onclick=async()=>{
     const code=document.getElementById('rkAcc').value;
     try{
-      await api('POST',burl('/bank-recs'),{accountCode:code,statementDate:document.getElementById('rkDate').value,statementBalance:Number(document.getElementById('rkBal').value)||0,note:document.getElementById('rkNote').value});
+      await api('POST',burl('/bank-recs'),{accountCode:code,statementDate:document.getElementById('rkDate').value,statementBalance:numVal(document.getElementById("rkBal")),note:document.getElementById('rkNote').value});
       viewRekonsiliasi();
     }catch(e){ document.getElementById('rkMsg').innerHTML=`<div class="pesan err">${esc(e.message)}</div>`; }
   };
@@ -1860,13 +1879,13 @@ function splitModal(batch,row){
   function addLine(code,amount){
     const r=document.createElement('div'); r.className='jline'; r.style.gridTemplateColumns='2.4fr 1.2fr auto';
     const sel=code?optBase.replace(`value="${code}"`,`value="${code}" selected`):optBase;
-    r.innerHTML=`<select class="sp-acc">${sel}</select><input class="sp-amt" type="number" min="0" step="any" placeholder="Jumlah" value="${amount!=null?amount:''}"><button class="del">&times;</button>`;
+    r.innerHTML=`<select class="sp-acc">${sel}</select><input class="sp-amt rp" type="text" inputmode="numeric" placeholder="Jumlah" value="${amount!=null?fmtTribu(amount):''}"><button class="del">&times;</button>`;
     r.querySelector('.del').onclick=()=>{r.remove();hitung();};
     r.querySelector('.sp-amt').oninput=hitung;
     box.appendChild(r);
   }
   function hitung(){
-    let t=0; box.querySelectorAll('.jline').forEach(r=>t+=Number(r.querySelector('.sp-amt').value)||0);
+    let t=0; box.querySelectorAll('.jline').forEach(r=>t+=numVal(r.querySelector(".sp-amt")));
     const ok=Math.abs(t-row.nominal)<0.5;
     wrap.querySelector('#spTot').innerHTML=`Total pecahan: <b>${fmtNum(t)}</b> / ${fmtNum(row.nominal)} ${ok?'<span class="chip baik">Pas</span>':'<span class="chip buruk">Selisih '+fmtNum(row.nominal-t)+'</span>'}`;
   }
@@ -1882,7 +1901,7 @@ function splitModal(batch,row){
   wrap.querySelector('.x').onclick=close; wrap.querySelector('#spBatal').onclick=close;
   wrap.onclick=(e)=>{ if(e.target===wrap) close(); };
   wrap.querySelector('#spSimpan').onclick=async()=>{
-    const splits=[...box.querySelectorAll('.jline')].map(r=>({accountCode:r.querySelector('.sp-acc').value,amount:Number(r.querySelector('.sp-amt').value)||0})).filter(s=>s.amount>0);
+    const splits=[...box.querySelectorAll('.jline')].map(r=>({accountCode:r.querySelector('.sp-acc').value,amount:numVal(r.querySelector(".sp-amt"))})).filter(s=>s.amount>0);
     try{
       const res=await api('POST','/api/import/'+batch.id+'/row',{rowId:row.id,splits});
       const r=batch.rows.find(x=>x.id===row.id); if(r)r.splits=res.row.splits;
@@ -1999,25 +2018,25 @@ async function modalTransaksi(tipe){
   const prev=wrap.querySelector('#txPrev');
   const ppnOn=wrap.querySelector('#txPpnOn'), caraSel=wrap.querySelector('#txCara');
   const recalc=()=>{
-    if(!isPP){ const j=Math.round(Number(g('txJml'))||0); prev.textContent=j>0?`Jurnal: Dr/Cr Rp ${fmtNum(j)}`:''; return; }
-    const dpp=Math.round(Number(g('txDpp'))||0);
-    if(ppnOn.checked){ wrap.querySelector('#txPpnWrap').style.display=''; const p=wrap.querySelector('#txPpn'); if(!p.dataset.touched) p.value=Math.round(dpp*0.11); }
+    if(!isPP){ const j=numStr(g('txJml')); prev.textContent=j>0?`Jurnal: Dr/Cr Rp ${fmtNum(j)}`:''; return; }
+    const dpp=numStr(g('txDpp'));
+    if(ppnOn.checked){ wrap.querySelector('#txPpnWrap').style.display=''; const p=wrap.querySelector('#txPpn'); if(!p.dataset.touched) p.value=fmtTribu(Math.round(dpp*0.11)); }
     else wrap.querySelector('#txPpnWrap').style.display='none';
-    const ppn=ppnOn.checked?Math.round(Number(g('txPpn'))||0):0;
+    const ppn=ppnOn.checked?numStr(g('txPpn')):0;
     prev.textContent=dpp>0?`Total: Rp ${fmtNum(dpp+ppn)} (DPP ${fmtNum(dpp)}${ppn?` + PPN ${fmtNum(ppn)}`:''})`:'';
   };
-  if(isPP){ ppnOn.onchange=recalc; wrap.querySelector('#txDpp').oninput=recalc; const p=wrap.querySelector('#txPpn'); p.oninput=()=>{p.dataset.touched='1';recalc();}; caraSel.onchange=()=>{wrap.querySelector('#txKasWrap').style.display=caraSel.value==='tunai'?'':'none';}; }
-  else { wrap.querySelector('#txJml').oninput=recalc;
+  if(isPP){ ppnOn.onchange=recalc; bindRibu(wrap.querySelector('#txDpp'),recalc); const p=wrap.querySelector('#txPpn'); bindRibu(p,()=>{p.dataset.touched='1';recalc();}); caraSel.onchange=()=>{wrap.querySelector('#txKasWrap').style.display=caraSel.value==='tunai'?'':'none';}; }
+  else { bindRibu(wrap.querySelector('#txJml'),recalc);
     const sel=wrap.querySelector('#txSettle');
-    if(sel) sel.onchange=()=>{ const o=sel.options[sel.selectedIndex]; const sisa=(o&&o.dataset.sisa)?Number(o.dataset.sisa):0; if(sisa>0){ wrap.querySelector('#txJml').value=sisa; recalc(); } };
+    if(sel) sel.onchange=()=>{ const o=sel.options[sel.selectedIndex]; const sisa=(o&&o.dataset.sisa)?Number(o.dataset.sisa):0; if(sisa>0){ wrap.querySelector('#txJml').value=fmtTribu(sisa); recalc(); } };
   }
   wrap.querySelector('#txSimpan').onclick=async()=>{
     const err=(m)=>{ wrap.querySelector('#txMsg').innerHTML=`<div class="pesan err">${esc(m)}</div>`; };
     const tgl=g('txTgl'); if(!tgl) return err('Isi tanggal.');
     let lines=[], settles='';
     if(isPP){
-      const dpp=Math.round(Number(g('txDpp'))||0); if(!(dpp>0)) return err('Nilai (DPP) harus lebih dari 0.');
-      const ppn=ppnOn.checked?Math.round(Number(g('txPpn'))||0):0; const total=dpp+ppn; const cara=g('txCara'); const lawan=g('txLawan'); const kas=g('txKas');
+      const dpp=numStr(g('txDpp')); if(!(dpp>0)) return err('Nilai (DPP) harus lebih dari 0.');
+      const ppn=ppnOn.checked?numStr(g('txPpn')):0; const total=dpp+ppn; const cara=g('txCara'); const lawan=g('txLawan'); const kas=g('txKas');
       if(cara==='tunai'&&!kas) return err('Pilih akun Kas/Bank.');
       if(tipe==='penjualan'){
         const dr=cara==='tunai'?kas:(piutang&&piutang.code); if(!dr) return err('Akun Piutang Usaha (1-1300) tidak ada di buku ini.');
@@ -2030,7 +2049,7 @@ async function modalTransaksi(tipe){
         lines.push({accountCode:cr,debit:0,credit:total});
       }
     } else {
-      const jml=Math.round(Number(g('txJml'))||0); if(!(jml>0)) return err('Jumlah harus lebih dari 0.'); const kas=g('txKas'); if(!kas) return err('Pilih akun Kas/Bank.');
+      const jml=numStr(g('txJml')); if(!(jml>0)) return err('Jumlah harus lebih dari 0.'); const kas=g('txKas'); if(!kas) return err('Pilih akun Kas/Bank.');
       settles=g('txSettle')||'';
       if(tipe==='terima'){ if(!piutang) return err('Akun Piutang Usaha (1-1300) tidak ada.'); lines=[{accountCode:kas,debit:jml,credit:0},{accountCode:piutang.code,debit:0,credit:jml}]; }
       else { if(!utang) return err('Akun Utang Usaha (2-1100) tidak ada.'); lines=[{accountCode:utang.code,debit:jml,credit:0},{accountCode:kas,debit:0,credit:jml}]; }
@@ -2461,23 +2480,23 @@ async function viewPph21(){
       const over=!(e.rate===''||e.rate===undefined);
       return `<tr>
         <td><b>${esc(e.nama)}</b></td><td class="kode">${esc(e.nik)}</td><td>${esc(e.ptkp)}</td><td class="kode">${esc(e.objectCode)}</td>
-        <td class="num"><input type="number" class="pph-bruto" data-i="${i}" value="${Math.round(e.gross)||0}" style="width:120px;text-align:right;padding:5px 7px;border:1px solid var(--garis);border-radius:6px"></td>
+        <td class="num"><input type="text" inputmode="numeric" class="pph-bruto" data-i="${i}" value="${fmtTribu(Math.round(e.gross)||0)}" style="width:120px;text-align:right;padding:5px 7px;border:1px solid var(--garis);border-radius:6px"></td>
         <td class="num" style="white-space:nowrap"><input type="number" step="0.01" class="pph-rate" data-i="${i}" data-over="${over?1:''}" value="${rate}" title="Default = TER otomatis (PTKP+bruto). Bisa diubah manual." style="width:60px;text-align:right;padding:5px 6px;border:1px solid ${over?'#d69e2e':'var(--garis)'};border-radius:6px;background:${over?'#fffaf0':'#fff'}"><button type="button" class="pph-auto" data-i="${i}" title="Kembalikan ke TER otomatis" style="border:none;background:none;cursor:pointer;color:var(--teks3);font-size:14px;padding:0 0 0 3px">↺</button></td>
         <td class="num pph-pph" data-i="${i}">0</td></tr>`;
     }).join('');
-    content().querySelectorAll('.pph-bruto').forEach(inp=>inp.oninput=()=>{ const i=+inp.dataset.i; const rt=content().querySelector('.pph-rate[data-i="'+i+'"]'); if(rt&&!rt.dataset.over){ rt.value=terRateFE(emps[i].ptkp,inp.value,meta); } recalc(); });
+    content().querySelectorAll('.pph-bruto').forEach(inp=>bindRibu(inp,()=>{ const i=+inp.dataset.i; const rt=content().querySelector('.pph-rate[data-i="'+i+'"]'); if(rt&&!rt.dataset.over){ rt.value=terRateFE(emps[i].ptkp,numVal(inp),meta); } recalc(); }));
     content().querySelectorAll('.pph-rate').forEach(inp=>inp.oninput=()=>{ inp.dataset.over='1'; inp.style.background='#fffaf0'; inp.style.borderColor='#d69e2e'; recalc(); });
     content().querySelectorAll('.pph-auto').forEach(b=>b.onclick=()=>{ const i=+b.dataset.i; const rt=content().querySelector('.pph-rate[data-i="'+i+'"]'); const br=content().querySelector('.pph-bruto[data-i="'+i+'"]'); if(rt){ rt.dataset.over=''; rt.value=terRateFE(emps[i].ptkp,br?br.value:0,meta); rt.style.background='#fff'; rt.style.borderColor='var(--garis)'; } recalc(); });
     recalc();
   }
   function recalc(){
     let tb=0,tp=0;
-    (State.pphEmps||[]).forEach((e,i)=>{ const brEl=content().querySelector('.pph-bruto[data-i="'+i+'"]'); const rtEl=content().querySelector('.pph-rate[data-i="'+i+'"]'); const br=Number(brEl?brEl.value:0)||0; const rt=Number(rtEl?rtEl.value:0)||0; const pph=Math.round(br*rt/100); const cell=content().querySelector('.pph-pph[data-i="'+i+'"]'); if(cell) cell.textContent=fmtNum(pph); tb+=br; tp+=pph; });
+    (State.pphEmps||[]).forEach((e,i)=>{ const brEl=content().querySelector('.pph-bruto[data-i="'+i+'"]'); const rtEl=content().querySelector('.pph-rate[data-i="'+i+'"]'); const br=numVal(brEl); const rt=Number(rtEl?rtEl.value:0)||0; const pph=Math.round(br*rt/100); const cell=content().querySelector('.pph-pph[data-i="'+i+'"]'); if(cell) cell.textContent=fmtNum(pph); tb+=br; tp+=pph; });
     if(g('pphTotBruto')) g('pphTotBruto').textContent=fmtNum(tb);
     if(g('pphTotPph')) g('pphTotPph').textContent=fmtNum(tp);
   }
   function collect(){
-    return (State.pphEmps||[]).map((e,i)=>{ const brEl=content().querySelector('.pph-bruto[data-i="'+i+'"]'); const rtEl=content().querySelector('.pph-rate[data-i="'+i+'"]'); const gross=Number(brEl?brEl.value:0)||0; const over=rtEl&&rtEl.dataset.over; return {empId:e.id,gross,rate:over?(Number(rtEl.value)||0):''}; });
+    return (State.pphEmps||[]).map((e,i)=>{ const brEl=content().querySelector('.pph-bruto[data-i="'+i+'"]'); const rtEl=content().querySelector('.pph-rate[data-i="'+i+'"]'); const gross=numVal(brEl); const over=rtEl&&rtEl.dataset.over; return {empId:e.id,gross,rate:over?(Number(rtEl.value)||0):''}; });
   }
   async function savePph21(flashIt){
     try{ await api('POST','/api/pph21/masa',{clientId:State.pphClient,year:State.pphYear,month:State.pphMonth,entries:collect()}); if(flashIt) g('pphMsg').innerHTML='<div class="pesan ok">✓ Tersimpan.</div>'; return true; }
@@ -2800,7 +2819,7 @@ function modalInvoice(i,clients,staff,meta){
       <div class="field"><label>Klien</label><select id="iKlien"><option value="">— pilih —</option>${klienOpts(clients,i?i.clientId:'')}</select></div>
       <div class="flex"><div class="field" style="flex:1"><label>Tanggal</label><input type="date" id="iTgl" value="${i?esc(i.tanggal):todayStr()}"></div>
         <div class="field" style="flex:1"><label>Jatuh Tempo</label><input type="date" id="iJt" value="${i?esc(i.jatuhTempo||''):''}"></div></div>
-      <div class="flex"><div class="field" style="flex:1"><label>Jumlah (Rp)</label><input type="number" id="iJml" value="${i?i.jumlah:''}"></div>
+      <div class="flex"><div class="field" style="flex:1"><label>Jumlah (Rp)</label><input type="text" inputmode="numeric" class="rp" id="iJml" value="${i?fmtTribu(i.jumlah):''}"></div>
         <div class="field" style="flex:1"><label>Status</label><select id="iStatus">${meta.statusInvoice.map(s=>`<option value="${s}" ${i&&i.status===s?'selected':''}>${I_STATUS[s][0]}</option>`).join('')}</select></div></div>
       ${isAdmin?`<div class="field"><label>Ditugaskan ke (staf pengerjaan)</label><select id="iStaff"><option value="">— tidak ditugaskan —</option>${staffOpts((staff||[]).filter(s=>s.role==='staff'),i?i.assignedTo:'')}</select></div>`:''}
       <div class="field"><label>Keterangan</label><input id="iKet" value="${i?esc(i.keterangan||''):''}" placeholder="mis. Jasa penyusunan SPT Tahunan 2025"></div>
@@ -2811,7 +2830,7 @@ function modalInvoice(i,clients,staff,meta){
   wrap.querySelector('.x').onclick=close; wrap.querySelector('#iBatal').onclick=close; wrap.onclick=(e)=>{if(e.target===wrap)close();};
   wrap.querySelector('#iSimpan').onclick=async()=>{
     const body={clientId:wrap.querySelector('#iKlien').value,tanggal:wrap.querySelector('#iTgl').value,jatuhTempo:wrap.querySelector('#iJt').value,
-      jumlah:wrap.querySelector('#iJml').value,status:wrap.querySelector('#iStatus').value,keterangan:wrap.querySelector('#iKet').value};
+      jumlah:numVal(wrap.querySelector('#iJml')),status:wrap.querySelector('#iStatus').value,keterangan:wrap.querySelector('#iKet').value};
     if(isAdmin){ const st=wrap.querySelector('#iStaff'); if(st) body.assignedTo=st.value||null; }
     try{ if(isEdit) await api('PUT','/api/invoices/'+i.id,body); else await api('POST','/api/invoices',body); close(); viewInvoiceKlien(); }
     catch(e){ wrap.querySelector('#iMsg').innerHTML=`<div class="pesan err">${esc(e.message)}</div>`; }
