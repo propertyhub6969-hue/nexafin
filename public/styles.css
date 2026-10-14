@@ -84,7 +84,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
 /* ---- Kartu & panel ---- */
 .card{background:var(--panel);border:1px solid var(--garis);border-radius:var(--radius);box-shadow:var(--bayang);margin-bottom:20px}
 .card .hd{padding:14px 18px;border-bottom:1px solid var(--garis);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
-.card .hd h3{margin:0;font-size:14px;color:var(--biru);text-transform:uppercase;letter-spacing:.01em;font-weight:700}
+.card .hd h3{margin:0;font-size:16px;color:var(--biru);text-transform:uppercase;letter-spacing:.01em;font-weight:700}
 .card .bd{padding:18px}
 .card .bd.nopad{padding:0}
 .grid{display:grid;gap:16px}
