@@ -2449,7 +2449,7 @@ async function viewPph21(){
       <button class="btn abu" id="pphKelola">👥 Kelola Karyawan</button>
     </div>
     <div class="card"><div class="hd"><h3>PPh 21 — <span id="pphCtx">…</span></h3>
-      <div class="flex"><button class="btn abu kecil" id="pphSimpan">💾 Simpan</button><button class="btn abu kecil" id="pphExcel">⬇️ Excel</button><button class="btn hijau kecil" id="pphExport">⬇️ XML Coretax</button></div></div>
+      <div class="flex"><button class="btn abu kecil" id="pphSalin" title="Isi gaji & TER dari masa (bulan) sebelumnya">📋 Salin masa lalu</button><button class="btn abu kecil" id="pphSimpan">💾 Simpan</button><button class="btn abu kecil" id="pphExcel">⬇️ Excel</button><button class="btn hijau kecil" id="pphExport">⬇️ XML Coretax</button></div></div>
       <div class="bd nopad"><div id="pphMsg" class="mt" style="padding:0 16px"></div>
       <div class="tbl-wrap"><table class="tbl">
         <thead><tr><th>Nama</th><th>NIK/NPWP</th><th>PTKP</th><th>Kode Objek</th><th class="num">Bruto (Rp)</th><th class="num">TER %</th><th class="num">PPh 21 (Rp)</th></tr></thead>
@@ -2462,6 +2462,7 @@ async function viewPph21(){
   g('pphYear').onchange=e=>{State.pphYear=e.target.value;loadRows();};
   g('pphMonth').onchange=e=>{State.pphMonth=e.target.value;loadRows();};
   g('pphKelola').onclick=()=>modalKaryawan(State.pphClient,loadRows,(clients.find(c=>c.id===State.pphClient)||{}).nama||'');
+  g('pphSalin').onclick=salinMasaLalu;
   g('pphSimpan').onclick=()=>savePph21(true);
   g('pphExport').onclick=exportPph21;
   g('pphExcel').onclick=exportExcel;
@@ -2497,6 +2498,21 @@ async function viewPph21(){
   }
   function collect(){
     return (State.pphEmps||[]).map((e,i)=>{ const brEl=content().querySelector('.pph-bruto[data-i="'+i+'"]'); const rtEl=content().querySelector('.pph-rate[data-i="'+i+'"]'); const gross=numVal(brEl); const over=rtEl&&rtEl.dataset.over; return {empId:e.id,gross,rate:over?(Number(rtEl.value)||0):''}; });
+  }
+  async function salinMasaLalu(){
+    const curY=+State.pphYear; let pm=+State.pphMonth-1, py=curY; if(pm<1){ pm=12; py=curY-1; }
+    let r;
+    try{ r=await api('GET','/api/pph21/masa?'+new URLSearchParams({clientId:State.pphClient,year:py,month:pm})); }
+    catch(err){ g('pphMsg').innerHTML='<div class="pesan err">'+esc(err.message)+'</div>'; return; }
+    const prev={}; let adaPrev=0;
+    (r.employees||[]).forEach(e=>{ prev[e.id]={gross:Number(e.gross)||0,rate:e.rate}; if(prev[e.id].gross>0) adaPrev++; });
+    if(!adaPrev){ g('pphMsg').innerHTML='<div class="pesan err">Masa <b>'+BLN_ID[pm]+' '+py+'</b> belum ada isian gaji — tidak ada yang bisa disalin.</div>'; return; }
+    const adaIsi=(State.pphEmps||[]).some((e,i)=>numVal(content().querySelector('.pph-bruto[data-i="'+i+'"]'))>0);
+    if(adaIsi && !confirm('Isian bruto di masa ini akan DITIMPA dengan data '+BLN_ID[pm]+' '+py+'. Lanjutkan?')) return;
+    let terisi=0;
+    (State.pphEmps||[]).forEach(e=>{ const p=prev[e.id]; if(p){ e.gross=p.gross; e.rate=p.rate; if(p.gross>0) terisi++; } });
+    renderRows();
+    g('pphMsg').innerHTML='<div class="pesan ok">✓ Disalin dari <b>'+BLN_ID[pm]+' '+py+'</b> ('+terisi+' karyawan bergaji). Periksa lalu klik <b>💾 Simpan</b>.</div>';
   }
   async function savePph21(flashIt){
     try{ await api('POST','/api/pph21/masa',{clientId:State.pphClient,year:State.pphYear,month:State.pphMonth,entries:collect()}); if(flashIt) g('pphMsg').innerHTML='<div class="pesan ok">✓ Tersimpan.</div>'; return true; }
