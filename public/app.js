@@ -2306,6 +2306,7 @@ async function viewKlien(){
         <button class="iconbtn" data-doc="${c.id}" title="Dokumen">📄</button>
         <button class="iconbtn" data-sptrekap="${c.id}" title="Cetak / PDF rekap SPT">🖨️</button>
         ${!isStaffRole?`<button class="iconbtn" data-edit="${c.id}" title="Ubah">✏️</button>`:''}
+        ${(isAdminRole||c.assignedTo===State.user.id)?`<button class="iconbtn" data-coretax="${c.id}" title="Akun Coretax">🔐</button>`:''}
         ${isAdminRole?`<button class="iconbtn del" data-del="${c.id}" title="Hapus">🗑️</button>`:''}
       </div></td>
     </tr>`;
@@ -2321,6 +2322,97 @@ async function viewKlien(){
   content().querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{ if(!confirm('Hapus klien ini beserta dokumen, tugas & invoice-nya?'))return; await api('DELETE','/api/clients/'+b.dataset.del); viewKlien(); });
   content().querySelectorAll('[data-doc]').forEach(b=>b.onclick=()=>{ State.arsipKlien=b.dataset.doc; State.view='arsip'; renderApp(); });
   content().querySelectorAll('[data-sptrekap]').forEach(b=>b.onclick=()=>{ const c=clients.find(x=>x.id===b.dataset.sptrekap); if(c) cetakRekapSPT(c); });
+  content().querySelectorAll('[data-coretax]').forEach(b=>b.onclick=()=>{ const c=clients.find(x=>x.id===b.dataset.coretax); if(c) modalCoretax(c); });
+}
+
+/* ============ BRANKAS AKUN CORETAX (Model B — enkripsi di browser, master password tak pernah dikirim ke server) ============ */
+const CRX={key:null};                 // kunci AES-GCM turunan master password; hidup selama sesi tab (hilang saat reload/logout)
+const CRX_VERIFY='nexafin-coretax-v1';
+function _b64e(buf){ let s='';const b=new Uint8Array(buf);for(let i=0;i<b.length;i++)s+=String.fromCharCode(b[i]);return btoa(s); }
+function _b64d(str){ const s=atob(str);const b=new Uint8Array(s.length);for(let i=0;i<s.length;i++)b[i]=s.charCodeAt(i);return b; }
+function crxRandSalt(){ return _b64e(crypto.getRandomValues(new Uint8Array(16))); }
+async function crxDeriveKey(password,saltB64){
+  const base=await crypto.subtle.importKey('raw',new TextEncoder().encode(password),'PBKDF2',false,['deriveKey']);
+  return crypto.subtle.deriveKey({name:'PBKDF2',salt:_b64d(saltB64),iterations:200000,hash:'SHA-256'},base,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);
+}
+async function crxEnc(key,text){
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const ct=await crypto.subtle.encrypt({name:'AES-GCM',iv},key,new TextEncoder().encode(text||''));
+  return {iv:_b64e(iv),ct:_b64e(ct)};
+}
+async function crxDec(key,blob){
+  if(!blob||!blob.ct) return '';
+  const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:_b64d(blob.iv)},key,_b64d(blob.ct));
+  return new TextDecoder().decode(pt);
+}
+async function modalCoretax(client){
+  if(!(window.crypto&&crypto.subtle)){ alert('Browser tidak mendukung enkripsi (butuh HTTPS).'); return; }
+  let meta;
+  try{ meta=await api('GET','/api/coretax/meta'); }catch(err){ alert(err.message); return; }
+  const wrap=document.createElement('div'); wrap.className='modal-bg'; document.body.appendChild(wrap);
+  const close=()=>wrap.remove();
+  function shell(inner){
+    wrap.innerHTML=`<div class="modal" style="max-width:560px"><div class="hd"><h3>🔐 Akun Coretax — ${esc(client.nama)}</h3><button class="x">&times;</button></div><div class="bd">${inner}</div></div>`;
+    wrap.querySelector('.x').onclick=close; wrap.onclick=e=>{ if(e.target===wrap) close(); };
+  }
+  if(!meta.hasVault) return renderSetup();
+  if(!CRX.key) return renderUnlock();
+  return renderCred();
+
+  function renderSetup(){
+    shell(`<p class="muted">Brankas Coretax belum dibuat. Buat <b>master password brankas</b> — password ini <b>tidak disimpan</b> di server &amp; dipakai untuk mengunci semua akun Coretax klien. <b style="color:#c0392b">Jika lupa, data tidak bisa dibuka lagi.</b></p>
+      <div id="crxMsg"></div>
+      <div class="field"><label>Master password brankas (min. 8 karakter)</label><input type="password" id="crxP1" autocomplete="new-password"></div>
+      <div class="field"><label>Ulangi master password</label><input type="password" id="crxP2" autocomplete="new-password"></div>
+      <div class="flex mt"><div class="spacer"></div><button class="btn hijau" id="crxCreate">Buat brankas</button></div>`);
+    wrap.querySelector('#crxCreate').onclick=async()=>{
+      const p1=wrap.querySelector('#crxP1').value,p2=wrap.querySelector('#crxP2').value,m=wrap.querySelector('#crxMsg');
+      if(p1.length<8){ m.innerHTML='<div class="pesan err">Minimal 8 karakter.</div>'; return; }
+      if(p1!==p2){ m.innerHTML='<div class="pesan err">Password tidak sama.</div>'; return; }
+      try{ const salt=crxRandSalt(); const key=await crxDeriveKey(p1,salt); const verifier=await crxEnc(key,CRX_VERIFY);
+        await api('POST','/api/coretax/setup',{salt,verifier}); CRX.key=key; renderCred(); }
+      catch(err){ m.innerHTML='<div class="pesan err">'+esc(err.message)+'</div>'; }
+    };
+  }
+  function renderUnlock(){
+    shell(`<p class="muted">Masukkan <b>master password brankas</b> untuk membuka akun Coretax. Cukup sekali selama sesi ini.</p>
+      <div id="crxMsg"></div>
+      <div class="field"><label>Master password</label><input type="password" id="crxPU" autocomplete="off"></div>
+      <div class="flex mt"><div class="spacer"></div><button class="btn hijau" id="crxUnlock">Buka</button></div>`);
+    const go=async()=>{
+      const p=wrap.querySelector('#crxPU').value,m=wrap.querySelector('#crxMsg');
+      try{ const key=await crxDeriveKey(p,meta.salt); const v=await crxDec(key,meta.verifier); if(v!==CRX_VERIFY) throw new Error('x'); CRX.key=key; renderCred(); }
+      catch(e){ m.innerHTML='<div class="pesan err">Master password salah.</div>'; }
+    };
+    wrap.querySelector('#crxUnlock').onclick=go;
+    wrap.querySelector('#crxPU').addEventListener('keydown',e=>{ if(e.key==='Enter') go(); });
+    setTimeout(()=>{ const el=wrap.querySelector('#crxPU'); if(el) el.focus(); },50);
+  }
+  async function renderCred(){
+    shell('<div class="muted" style="padding:8px 0">Memuat…</div>');
+    let rec; try{ rec=await api('GET','/api/coretax/cred?'+new URLSearchParams({clientId:client.id})); }
+    catch(err){ shell('<div class="pesan err">'+esc(err.message)+'</div>'); return; }
+    const f=rec.fields||{};
+    const dec=async(b)=>{ try{ return await crxDec(CRX.key,b); }catch(e){ return ''; } };
+    const vals={ username:await dec(f.username), password:await dec(f.password), passphrase:await dec(f.passphrase), note:await dec(f.note) };
+    const row=(label,id,val)=>`<div class="field"><label>${label}</label><div class="flex" style="gap:6px"><input type="text" id="crx_${id}" value="${esc(val)}" style="flex:1;font-family:monospace"><button class="btn abu kecil" type="button" data-copy="crx_${id}" title="Salin">📋</button></div></div>`;
+    shell(`<p class="muted" style="font-size:12px">Terenkripsi di browser (AES-GCM). ${rec.updatedBy?('Terakhir diubah: '+esc(rec.updatedBy)+(rec.updatedAt?' · '+new Date(rec.updatedAt).toLocaleDateString('id-ID'):'')):'Belum pernah diisi.'}</p>
+      <div id="crxMsg"></div>
+      ${row('Username / NPWP login','username',vals.username)}
+      ${row('Password akun','password',vals.password)}
+      ${row('Passphrase sertel','passphrase',vals.passphrase)}
+      <div class="field"><label>Catatan</label><textarea id="crx_note" rows="2">${esc(vals.note)}</textarea></div>
+      <div class="flex mt"><button class="btn abu kecil" id="crxLock">🔒 Kunci lagi</button><div class="spacer"></div><button class="btn hijau" id="crxSave">💾 Simpan</button></div>`);
+    wrap.querySelectorAll('[data-copy]').forEach(b=>b.onclick=()=>{ const el=wrap.querySelector('#'+b.dataset.copy); try{ navigator.clipboard.writeText(el.value); }catch(e){ el.select(); document.execCommand('copy'); } const o=b.textContent; b.textContent='✓'; setTimeout(()=>b.textContent=o,900); });
+    wrap.querySelector('#crxLock').onclick=()=>{ CRX.key=null; renderUnlock(); };
+    wrap.querySelector('#crxSave').onclick=async()=>{
+      const m=wrap.querySelector('#crxMsg'),get=id=>wrap.querySelector('#crx_'+id).value;
+      try{
+        const fields={ username:await crxEnc(CRX.key,get('username')), password:await crxEnc(CRX.key,get('password')), passphrase:await crxEnc(CRX.key,get('passphrase')), note:await crxEnc(CRX.key,get('note')) };
+        await api('POST','/api/coretax/cred',{clientId:client.id,fields}); m.innerHTML='<div class="pesan ok">✓ Tersimpan (terenkripsi).</div>';
+      }catch(err){ m.innerHTML='<div class="pesan err">'+esc(err.message)+'</div>'; }
+    };
+  }
 }
 function modalKlien(c,staff){
   const isEdit=!!c;
